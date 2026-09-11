@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-# توكن البوت الجديد
+# توكن البوت
 TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
 bot = Bot(token=TOKEN)
@@ -61,31 +61,33 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تجاوز الرابط واستخراج الوجهة النهائية...")
+        processing_msg = await message.reply("⏳ جاري تجاوز الرابط وتصفية الإعلانات...")
         
         try:
-            # إرسال الطلب مع السماح بتتبع كافة عمليات التحويل (Redirects)
             response = scraper.get(text, timeout=25, allow_redirects=True)
             html_content = response.text
             final_url = response.url
             
             extracted_url = None
             
-            # البحث عن أوامر التوجيه داخل السكربتات (مثل window.location.href أو window.location.replace)
+            # البحث عن أوامر التوجيه داخل السكربتات
             location_match = re.search(r'window\.location(?:\.href|\.replace)?\s*=\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
             if location_match:
                 extracted_url = location_match.group(1)
             
-            # إذا لم يوجد، نبحث عن متغيرات التوجيه المعتادة
             if not extracted_url:
                 target_match = re.search(r'["\'](?:target|destination|finalUrl|redirect_url|link|url|to)["\']\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
                 if target_match:
                     extracted_url = target_match.group(1)
             
-            # إذا لم يتم العثور على رابط صريح داخل السكربتات، نبحث عن الروابط الخارجية ضمن محتوى الصفحة
             if not extracted_url:
                 all_urls = re.findall(r'https?://[^\s<>"\']+', html_content)
-                ignored = ['boostylink.com', 'googletagmanager.com', 'discord.gg', 'youtube.com', 'youtu.be', 'facebook', 'twitter', 'instagram']
+                # أضفنا rm358.com وباقي شبكات الإعلانات إلى قائمة التجاهل
+                ignored = [
+                    'boostylink.com', 'rm358.com', 'googletagmanager.com', 
+                    'google-analytics.com', 'discord.gg', 'youtube.com', 
+                    'youtu.be', 'facebook', 'twitter', 'instagram', 'adsterra'
+                ]
                 
                 filtered = []
                 for u in all_urls:
@@ -95,11 +97,9 @@ async def handle_links(message: Message):
                 if filtered:
                     extracted_url = filtered[-1]
             
-            # كحل أخير إذا تطابق الرابط، نعتمد الرابط النهائي بعد الـ Redirect
             if not extracted_url or extracted_url == text:
                 extracted_url = final_url
 
-            # تنظيف الرابط النهائي من أي رموز مشفرة
             clean_url = html.unescape(extracted_url)
 
             result_text = (
