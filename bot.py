@@ -1,12 +1,13 @@
 import os
 import re
 import html
-import asyncio
+import json
+import cloudscraper
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
-from playwright.async_api import async_playwright
 
+# توكن البوت
 TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
 bot = Bot(token=TOKEN)
@@ -27,109 +28,96 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.reply(
-        "مرحباً بك في بوت تجاوز الروابط الذكي!\n\nأرسل لي رابط الاختصار وسأستخرج الرابط النهائي فوراً:",
+        "مرحباً بك من جديد! البوت يعمل الآن بشكل مستقر.\n\nأرسل لي الرابط وسأقوم بفحصه واستخراج وجهته:",
         reply_markup=get_main_menu()
     )
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لتجاوز روابط المهام وإلغاء القفل تلقائياً.",
+        "هذا البوت مخصص لفحص واستخراج الروابط بكفاءة عالية.",
         reply_markup=get_main_menu()
     )
 
 @dp.callback_query(F.data == "bypass_link")
 async def bypass_prompt(callback: Message):
-    await callback.message.edit_text("يرجى إرسال الرابط المطلوب تخطيه مباشرة في المحادثة.")
+    await callback.message.edit_text("يرجى إرسال الرابط مباشرة في المحادثة.")
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_menu(callback: Message):
-    await callback.message.edit_text("أرسل الرابط المطلوب تجاوزه:", reply_markup=get_main_menu())
+    await callback.message.edit_text("أرسل الرابط المطلوب فحصه:", reply_markup=get_main_menu())
 
 @dp.message()
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تجاوز قفل الأزرار واستخراج الرابط النهائي...")
+        processing_msg = await message.reply("⏳ جاري فحص الرابط واستخراج النتائج...")
         
         extracted_url = text
         
         try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                    viewport={"width": 1280, "height": 720}
-                )
-                page = await context.new_page()
-                
-                # التقاط أي رابط يخرج منه المتصفح أو يتحول إليه
-                final_redirected_url = None
-                def handle_popup(route):
-                    nonlocal final_redirected_url
-                    final_redirected_url = route.url
-                
-                await page.goto(text, timeout=40000)
-                await page.wait_for_timeout(3000)
-                
-                # محاكاة الضغط البرمجي التلقائي على أزرار المهام لجعل عداد التقدم يكتمل
-                for i in range(5):
-                    try:
-                        # النقر على جميع الأزرار الحمراء أو الزرقاء للمهام لتفعيلها وهمياً
-                        buttons = await page.query_selector_all(".red, .blue, button, a.btn")
-                        if i < len(buttons):
-                            await buttons[i].click()
-                            await page.wait_for_timeout(1500)
-                    except:
-                        pass
-                
-                # الانتظار حتى يتم تفعيل الزر الأخضر (Unlock link) والنقر عليه
+            scraper = cloudscraper.create_scraper(
+                browser={
+                    'browser': 'chrome',
+                    'platform': 'android',
+                    'desktop': False
+                }
+            )
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
+                "Referer": text
+            }
+            
+            response = scraper.get(text, headers=headers, allow_redirects=True, timeout=20)
+            html_content = response.text
+            
+            # فحص الـ API الخاص بـ boostylink مباشرة لو وجد السلاج
+            path_parts = text.rstrip('/').split('/')
+            slug = path_parts[-1] if path_parts else ""
+            if slug and len(slug) > 2:
                 try:
-                    # الانتظار لظهور النص أو الزر الأخضر
-                    await page.wait_for_selector("text=Unlock link", timeout=8000)
-                    # الضغط على زر فتح القفل الأخضر
-                    await page.click("text=Unlock link", timeout=3000)
-                    await page.wait_for_timeout(4000)
+                    api_resp = scraper.get(f"https://boostylink.com/api/links/{slug}", headers=headers, timeout=8)
+                    if api_resp.status_code == 200:
+                        api_data = api_resp.json()
+                        for key in ["destination", "target_url", "url", "link"]:
+                            if key in api_data and api_data[key]:
+                                extracted_url = api_data[key]
+                                break
                 except:
-                    # محاولة النقر المباشر على أي رابط يحتوي على كلمة unlock أو target في حال لم يظهر النص
-                    try:
-                        await page.click("a[id*='unlock'], button[id*='unlock']", timeout=2000)
-                        await page.wait_for_timeout(3000)
-                    except:
-                        pass
+                    pass
 
-                # فحص عنوان الصفحة الحالي بعد النقر
-                current_url = page.url
-                if not any(d in current_url for d in ["boostylink.com", "rm358.com", "rtmark.net"]):
-                    extracted_url = current_url
-                elif final_redirected_url and not any(d in final_redirected_url for d in ["boostylink.com", "rm358.com"]):
-                    extracted_url = final_redirected_url
-                else:
-                    # محاولة استخراج الرابط من أحدث زر تم تفعيله في الصفحة
-                    try:
-                        href_val = await page.eval_on_selector("a.btn-success, a:has-text('Get Link'), a:has-text('Go')", "el => el.href")
-                        if href_val:
-                            extracted_url = href_val
-                    except:
-                        extracted_url = page.url
+            # فحص الروابط داخل محتوى الصفحة إذا لم يتم جلب الوجهة
+            if extracted_url == text:
+                found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
+                ignored = ['boostylink.com', 'google.com', 'cloudflare.com', 'w3.org', 'rm358.com', 'rtmark.net']
+                for link in found_links:
+                    clean_l = link.rstrip('\\"\'.,;')
+                    if not any(d in clean_l.lower() for d in ignored) and clean_l != text:
+                        extracted_url = clean_l
+                        break
 
-                await browser.close()
-                
+            if extracted_url == text and response.url != text:
+                extracted_url = response.url
+
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
             result_text = (
-                f"🎉 **تم تجاوز المهام واستخراج الرابط النهائي بنجاح!**\n\n"
+                f"🎉 **النتيجة النهائية:**\n\n"
                 f"🔗 {clean_url}\n\n"
-                f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
+                f"🔔 اضغط على زر النسخ أدناه:"
             )
             
             await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
             
         except Exception as e:
-            await processing_msg.edit_text(f"❌ حدث خطأ أثناء التجاوز:\n`{str(e)}`")
+            await processing_msg.edit_text(f"❌ حدث خطأ:\n`{str(e)}`")
     else:
         await message.reply("يرجى إرسال رابط صالح يبدأ بـ http أو https.")
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(dp.start_polling(bot))
