@@ -11,7 +11,6 @@ TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
-scraper = cloudscraper.create_scraper()
 
 def get_main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -51,25 +50,53 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تجاوز حماية الرابط واستخراج الوجهة...")
+        processing_msg = await message.reply("⏳ جاري سحب الرابط النهائي الحقيقي...")
         
-        extracted_url = None
+        extracted_url = text
         
         try:
-            # إذا كان الرابط يتبع لـ boostylink، نقوم باستخراج المعرف الفريد (ID) وتوليد الرابط الموجه
-            if "boostylink.com" in text:
-                # استخراج آخر جزء من الرابط (المعرف)
-                path_parts = text.rstrip('/').split('/')
-                token_id = path_parts[-1] if path_parts else ""
-                
-                if token_id and len(token_id) > 2:
-                    # تركيب الرابط النهائي المباشر بناءً على معرف البوستي
-                    extracted_url = f"https://link-center.net/2603650/{token_id}"
-                else:
-                    extracted_url = text
+            # استخدام جلسة cloudscraper متقدمة مع محاكاة كاملة للمتصفح
+            scraper = cloudscraper.create_scraper(
+                browser={
+                    'browser': 'chrome',
+                    'platform': 'android',
+                    'desktop': False
+                }
+            )
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
+                "Referer": text
+            }
+            
+            # الطلب الأول لصفحة البوستي
+            response = scraper.get(text, headers=headers, allow_redirects=True, timeout=25)
+            html_content = response.text
+            
+            # البحث عن أي روابط توجيه نهائية مخفية ضمن الأكواد أو الـ JavaScript أو الأطر
+            # 1. البحث عن روابط link-center أو bstshrt أو أي روابط وجهة صريحة
+            found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
+            ignored_domains = ['boostylink.com', 'google.com', 'cloudflare.com', 'w3.org', 'maxcdn', 'jsdelivr', 'jquery', 'bootstrap', 'googletagmanager', 'analytics']
+            
+            target_candidate = None
+            for link in found_links:
+                clean_l = link.rstrip('\\"\'.,;')
+                if not any(domain in clean_l.lower() for domain in ignored_domains) and clean_l != text:
+                    if any(domain in clean_l.lower() for domain in ['link-center', 'bstshrt', 'linkvertise', 'ouo.io', 'adf.ly', 'go.', 'to/']):
+                        target_candidate = clean_l
+                        break
+            
+            if target_candidate:
+                extracted_url = target_candidate
+            elif response.url != text and 'boostylink.com' not in response.url:
+                extracted_url = response.url
             else:
-                response = scraper.get(text, allow_redirects=True, timeout=20)
-                extracted_url = response.url if response.url != text else text
+                # إذا كانت الصفحة محمية بالكامل بسكربت خارجي، نبحث عن روابط إعادة التوجيه بداخل الـ Meta tags أو الـ window.location
+                meta_match = re.search(r'(?:window\.location\.href|url|href)\s*=\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
+                if meta_match:
+                    extracted_url = meta_match.group(1)
 
             # تنظيف الرابط النهائي وجعله بسطر واحد نظيف تماماً
             clean_url = html.unescape(extracted_url).strip()
