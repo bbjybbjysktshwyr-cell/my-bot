@@ -51,9 +51,10 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تفكيك الروابط وتتبع التوجيهات النهائية...")
+        processing_msg = await message.reply("⏳ جاري بدء التتبع وتحليل الروابط خطوة بخطوة...")
         
         extracted_url = text
+        steps_log = [f"الرابط الأصلي: {text}"]
         
         try:
             scraper = cloudscraper.create_scraper(
@@ -86,8 +87,10 @@ async def handle_links(message: Message):
                         api_data = api_resp.json()
                         if "destination" in api_data:
                             extracted_url = api_data["destination"]
+                            steps_log.append(f"من API: {extracted_url}")
                         elif "url" in api_data:
                             extracted_url = api_data["url"]
+                            steps_log.append(f"من API (url): {extracted_url}")
                 except:
                     pass
 
@@ -99,6 +102,7 @@ async def handle_links(message: Message):
                         for key in ["destination", "target_url", "link", "redirect_url"]:
                             if key in data and "boostylink.com" not in data[key]:
                                 extracted_url = data[key]
+                                steps_log.append(f"من JSON الداخلي: {extracted_url}")
                                 break
                     except:
                         continue
@@ -117,32 +121,49 @@ async def handle_links(message: Message):
                     if not any(domain in clean_l.lower() for domain in ignored_domains) and clean_l != text:
                         if not clean_l.startswith('#') and ('/' in clean_l.replace('https://', '').replace('http://', '')):
                             extracted_url = clean_l
+                            steps_log.append(f"من محتوى الصفحة: {extracted_url}")
                             break
 
             if extracted_url == text and response.url != text and 'boostylink.com' not in response.url:
                 extracted_url = response.url
+                steps_log.append(f"من إعادة التوجيه السريع: {extracted_url}")
 
-            # حلقة تتبع ذكية للروابط الوسيطة (مثل rm358 أو rtmark) عبر تتبع رأس الاستجابة والتحويلات
+            # تتبع عميق لـ rm358 والروابط الوسيطة مع فحص الـ Meta Refresh والـ Script Forms
             redirect_count = 0
             while any(domain in extracted_url for domain in ["rm358.com", "rtmark.net"]) and redirect_count < 5:
                 try:
                     redirect_count += 1
-                    # تعطيل الـ redirects التلقائية مؤقتاً لنتمكن من قراءة هيدر التحويل (Location) يدوياً
-                    sub_resp = scraper.get(extracted_url, headers=headers, allow_redirects=False, timeout=10)
+                    sub_resp = scraper.get(extracted_url, headers=headers, allow_redirects=True, timeout=15)
+                    sub_html = sub_resp.text
                     
-                    if "Location" in sub_resp.headers:
-                        next_url = sub_resp.headers["Location"]
-                        # إذا كان رابط التحويل نسبياً، نربطه بالدومين الأصلي
-                        if next_url.startswith("/"):
-                            parsed_base = re.match(r'(https?://[^/]+)', extracted_url)
-                            next_url = parsed_base.group(1) + next_url if parsed_base else next_url
-                        extracted_url = next_url
-                    else:
-                        # إذا لم يوجد هيدر تحويل، نفحص محتوى الصفحة عن أي سكربت تحويل
-                        sub_html = sub_resp.text
-                        loc_match = re.search(r'(?:window\.)?location(?:\.href)?\s*=\s*["\'](https?://[^"\']+)["\']', sub_html, re.IGNORECASE)
-                        if loc_match:
-                            extracted_url = loc_match.group(1)
+                    # البحث عن الـ Meta Refresh
+                    meta_match = re.search(r'<meta[^>]*http-equiv=["\']refresh["\'][^>]*content=["\'][^;]+;\s*url=([^\s"\']+)["\']', sub_html, re.IGNORECASE)
+                    if meta_match:
+                        extracted_url = meta_match.group(1)
+                        steps_log.append(f"تتبع (Meta Refresh): {extracted_url}")
+                        continue
+
+                    # البحث عن نافذة التوجيه أو المتغيرات
+                    loc_match = re.search(r'(?:window\.)?location(?:\.href)?\s*=\s*["\'](https?://[^"\']+)["\']', sub_html, re.IGNORECASE)
+                    if loc_match:
+                        extracted_url = loc_match.group(1)
+                        steps_log.append(f"تتبع (JS Location): {extracted_url}")
+                        continue
+                        
+                    # البحث عن روابط داخل النص تتجاوز الدومينات الوسيطة
+                    all_sub_links = re.findall(r'https?://[^\s<>"\']+', sub_html)
+                    found_next = False
+                    for sl in all_sub_links:
+                        clean_sl = sl.rstrip('\\"\'.,;')
+                        if not any(d in clean_sl.lower() for d in ['rm358.com', 'rtmark.net', 'boostylink.com', 'google.com', 'w3.org', 'cloudflare', 'img.gif']):
+                            extracted_url = clean_sl
+                            steps_log.append(f"تتبع (رابط فرعي): {extracted_url}")
+                            found_next = True
+                            break
+                    if not found_next:
+                        if sub_resp.url != extracted_url:
+                            extracted_url = sub_resp.url
+                            steps_log.append(f"تتبع (استجابة نهائية): {extracted_url}")
                         else:
                             break
                 except:
@@ -151,16 +172,19 @@ async def handle_links(message: Message):
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
+            # طباعة خطوات التتبع مع الرابط النهائي لتكتشف أي خطوة تقف عندها
+            logs_str = "\n".join([f"🔹 {step}" for step in steps_log])
             result_text = (
-                f"🎉 **تم استخراج الرابط النهائي بنجاح!**\n\n"
-                f"🔗 {clean_url}\n\n"
+                f"🎉 **خطوات التتبع والنتيجة:**\n\n"
+                f"{logs_str}\n\n"
+                f"🔗 **الرابط النهائي المستخرج:**\n{clean_url}\n\n"
                 f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
             )
             
             await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
             
         except Exception as e:
-            await processing_msg.edit_text(f"❌ حدث خطأ محلي:\n`{str(e)}`")
+            await processing_msg.edit_text(f"❌ حدث خطأ أثناء التتبع:\n`{str(e)}`")
     else:
         await message.reply("يرجى إرسال رابط صالح يبدأ بـ http أو https.")
 
