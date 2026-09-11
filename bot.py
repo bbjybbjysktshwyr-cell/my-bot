@@ -12,6 +12,9 @@ TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
 # الآيدي الخاص بك كمدير للبوت
 ADMIN_ID = 6697426766
 
+# يوزر تيليجرام الخاص بك للدعم الفني
+SUPPORT_USER_URL = "https://t.me/AL_shz1"
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
@@ -21,7 +24,6 @@ LINK_DATABASE = {
     "https://boostylink.com/nYsaet7F": "https://bstshrt.com/u/vc691v"
 }
 
-# تخزين المستخدمين للإذاعة
 USERS_SET = set()
 ADMIN_STATE = {}
 
@@ -44,6 +46,13 @@ def get_admin_menu():
 def get_copy_keyboard(target_url):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 نسخ الرابط", url=target_url)],
+        [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
+    ])
+
+def get_unknown_link_keyboard(target_url):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 نسخ الرابط", url=target_url)],
+        [InlineKeyboardButton(text="👨‍💻 تواصل مع الدعم الفني", url=SUPPORT_USER_URL)],
         [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
     ])
 
@@ -206,12 +215,11 @@ async def handle_messages(message: Message):
             clean_url = re.sub(r'\s+', '', clean_url)
 
             if clean_url == text:
-                await processing_msg.edit_text(
-                    "⚠️ هذا الرابط غير موجود في القاعدة المحلية.\n\n"
-                    "إذا كنت تريد إضافته، استخدم الأمر:\n"
-                    "`/add الرابط_المختصر | الرابط_النهائي`",
-                    reply_markup=get_copy_keyboard(text)
+                result_text = (
+                    f"🔗 {text}\n\n"
+                    f"💡 لمعالجة هذا الرابط، يرجى التواصل مع الدعم الفني:"
                 )
+                await processing_msg.edit_text(result_text, reply_markup=get_unknown_link_keyboard(text))
             else:
                 result_text = (
                     f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
