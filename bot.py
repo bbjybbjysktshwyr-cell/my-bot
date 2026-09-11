@@ -12,20 +12,42 @@ TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 # الآيدي الخاص بك كمدير للبوت
 ADMIN_ID = 6697426766
 
+# إعدادات الاشتراك الإجباري (يمكنك تعديل معرف قناتك ورابطها)
+CHANNEL_USERNAME = "@A_ToolsX"  # معرف قناتك بدون رابط
+CHANNEL_LINK = "https://t.me/A_ToolsX"
+FORCE_SUB_ENABLED = True  # True لتفعيل الاشتراك الإجباري، أو False لإيقافه
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# قاعدة بيانات محلية قابلة للتحديث
+# قاعدة بيانات محلية للروابط
 LINK_DATABASE = {
     "https://boostylink.com/EbnbkEHt": "https://link-center.net/2603650/nY1W5wuviUhS",
     "https://boostylink.com/nYsaet7F": "https://bstshrt.com/u/vc691v"
 }
 
-def get_main_menu():
-    return InlineKeyboardMarkup(inline_keyboard=[
+# تخزين مؤقت للمستخدمين الذين تفاعلوا مع البوت (للبث)
+USERS_SET = set()
+
+# حالات المدير المؤقتة (للبث أو الإضافة)
+ADMIN_STATE = {}
+
+def get_main_menu(is_admin=False):
+    keyboard = [
         [InlineKeyboardButton(text="🔗 الروابط المدعومة", callback_data="supported_links")],
         [InlineKeyboardButton(text="⚡️ تجاوز رابط", callback_data="bypass_link")],
         [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
+    ]
+    if is_admin:
+        keyboard.append([InlineKeyboardButton(text="⚙️ لوحة تحكم المدير", callback_data="admin_panel")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_admin_menu():
+    sub_status = "🟢 مفعل" if FORCE_SUB_ENABLED else "🔴 معطل"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"📢 اشتراك إجباري: {sub_status}", callback_data="toggle_sub")],
+        [InlineKeyboardButton(text="💬 إرسال إذاعة للكل", callback_data="start_broadcast")],
+        [InlineKeyboardButton(text="🔙 عودة للقائمة الرئيسية", callback_data="back_to_menu")]
     ])
 
 def get_copy_keyboard(target_url):
@@ -34,18 +56,97 @@ def get_copy_keyboard(target_url):
         [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
     ])
 
+# دالة التحقق من اشتراك المستخدم في القناة
+async def check_subscription(user_id: int) -> bool:
+    if not FORCE_SUB_ENABLED:
+        return True
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            return True
+    except Exception:
+        pass
+    return False
+
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
+    user_id = message.from_user.id
+    USERS_SET.add(user_id)
+    
+    # التحقق من الاشتراك الإجباري
+    if FORCE_SUB_ENABLED and not await check_subscription(user_id):
+        sub_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📢 اشترك في القناة", url=CHANNEL_LINK)],
+            [InlineKeyboardButton(text="✅ تحقق من الاشتراك", callback_data="check_sub")]
+        ])
+        await message.answer(
+            "⚠️ **عذراً، يجب عليك الاشتراك في قناة البوت أولاً لاستخدامه!**\n\n"
+            f"قناة البوت: {CHANNEL_LINK}\n\n"
+            "بعد الاشتراك، اضغط على زر (تحقق من الاشتراك).",
+            reply_markup=sub_keyboard
+        )
+        return
+
+    is_admin = (user_id == ADMIN_ID)
     await message.answer(
-        "مرحباً بك في بوت استختراج وتجاوز الروابط. اختر ما تحتاجه من القائمة أدناه:",
-        reply_markup=get_main_menu()
+        "مرحباً بك في بوت استخراج وتجاوز الروابط. اختر ما تحتاجه من القائمة أدناه:",
+        reply_markup=get_main_menu(is_admin)
     )
+
+@dp.callback_query(F.data == "check_sub")
+async def verify_subscription(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    if await check_subscription(user_id):
+        await callback.message.delete()
+        is_admin = (user_id == ADMIN_ID)
+        await callback.message.answer(
+            "🎉 شكراً لك! تم التحقق من اشتراكك بنجاح. اختر ما تحتاجه:",
+            reply_markup=get_main_menu(is_admin)
+        )
+    else:
+        await callback.answer("❌ لم تقم بالاشتراك في القناة بعد!", show_alert=True)
+
+@dp.callback_query(F.data == "admin_panel")
+async def admin_panel_callback(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("للمدير فقط!", show_alert=True)
+        return
+    await callback.message.edit_text(
+        "⚙️ **لوحة تحكم المدير:**\n\nتحكم في إعدادات البوت والخدمات من الأزرار أدناه:",
+        reply_markup=get_admin_menu()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "toggle_sub")
+async def toggle_sub_callback(callback: CallbackQuery):
+    global FORCE_SUB_ENABLED
+    if callback.from_user.id != ADMIN_ID:
+        return
+    FORCE_SUB_ENABLED = not FORCE_SUB_ENABLED
+    status_msg = "تم تفعيل الاشتراك الإجباري بنجاح ✅" if FORCE_SUB_ENABLED else "تم تعطيل الاشتراك الإجباري ❌"
+    await callback.answer(status_msg, show_alert=True)
+    await callback.message.edit_reply_markup(reply_markup=get_admin_menu())
+
+@dp.callback_query(F.data == "start_broadcast")
+async def start_broadcast_callback(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    ADMIN_STATE[callback.from_user.id] = "waiting_broadcast"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ إلغاء", callback_data="admin_panel")]
+    ])
+    await callback.message.edit_text(
+        "📢 **وضع الإذاعة نشط:**\n\nأرسل الآن الرسالة التي تريد إذاعتها لجميع المستخدمين (صورة، نص، أو فيديو):",
+        reply_markup=keyboard
+    )
+    await callback.answer()
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: CallbackQuery):
+    is_admin = (callback.from_user.id == ADMIN_ID)
     await callback.message.edit_text(
         "هذا البوت مخصص لاستخراج الروابط الأصلية وتجاوز صفحات الاختصار بدقة وسرعة.",
-        reply_markup=get_main_menu()
+        reply_markup=get_main_menu(is_admin)
     )
     await callback.answer()
 
@@ -75,24 +176,24 @@ async def supported_links_callback(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_menu(callback: CallbackQuery):
+    ADMIN_STATE.pop(callback.from_user.id, None)
+    is_admin = (callback.from_user.id == ADMIN_ID)
     await callback.message.edit_text(
         "مرحباً بك من جديد! اختر ما تحتاجه من القائمة أدناه:",
-        reply_markup=get_main_menu()
+        reply_markup=get_main_menu(is_admin)
     )
     await callback.answer()
 
-# أمر الإضافة المباشر والسريع لك وحدك
+# أمر الإضافة المباشر: /add الرابط | الهدف
 @dp.message(Command("add"))
 async def add_new_link(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
-    
     try:
         parts = message.text.replace("/add", "").strip().split("|")
         if len(parts) == 2:
             short_link = parts[0].strip()
             target_link = parts[1].strip()
-            
             LINK_DATABASE[short_link] = target_link
             await message.answer(
                 f"✅ **تمت إضافة الرابط بنجاح للقاعدة!**\n\n"
@@ -101,20 +202,54 @@ async def add_new_link(message: Message):
             )
         else:
             await message.answer(
-                "⚠️ صيغة غير صحيحة!\n"
-                "استخدم الأمر بالشكل التالي:\n"
-                "`/add الرابط_المختصر | الرابط_النهائي`"
+                "⚠️ صيغة غير صحيحة!\nاستخدم الأمر بالشكل التالي:\n`/add الرابط_المختصر | الرابط_النهائي`"
             )
     except Exception as e:
-        await message.answer(f"❌ حدث خطأ أثناء الإضافة: `{str(e)}`")
+        await message.answer(f"❌ حدث خطأ: `{str(e)}`")
 
 @dp.message(F.text & ~F.text.startswith("/"))
-async def handle_links(message: Message):
+async def handle_messages(message: Message):
+    user_id = message.from_user.id
+    
+    # معالجة الإذاعة إذا كان المدير في وضع الإذاعة
+    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_broadcast":
+        ADMIN_STATE.pop(user_id, None)
+        sent_count = 0
+        fail_count = 0
+        status_msg = await message.answer("⏳ جاري بدء الإذاعة لجميع المستخدمين...")
+        
+        for uid in USERS_SET:
+            try:
+                await message.send_copy(chat_id=uid)
+                sent_count += 1
+                await asyncio.sleep(0.05) # تجنب الحظر من التليجرام
+            except Exception:
+                fail_count += 1
+                
+        await status_msg.edit_text(
+            f"✅ **تم إكمال الإذاعة بنجاح!**\n\n"
+            f"📤 تم الإرسال إلى: `{sent_count}` مستخدماً\n"
+            f"❌ فشل الإرسال لـ: `{fail_count}` مستخدماً"
+        )
+        return
+
+    # التحقق من الاشتراك الإجباري للمستخدمين العاديين
+    if FORCE_SUB_ENABLED and not await check_subscription(user_id):
+        sub_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📢 اشترك في القناة", url=CHANNEL_LINK)],
+            [InlineKeyboardButton(text="✅ تحقق من الاشتراك", callback_data="check_sub")]
+        ])
+        await message.answer(
+            "⚠️ عذراً، يجب عليك الاشتراك في قناة البوت أولاً لاستخدامه!",
+            reply_markup=sub_keyboard
+        )
+        return
+
     text = message.text.strip()
     if text and text.startswith("http"):
         processing_msg = await message.answer("⏳ جاري فحص الرابط واستخراج الهدف...")
         
-        # 1. التحقق من قاعدة البيانات
+        # 1. فحص القاعدة المحلية
         if text in LINK_DATABASE:
             clean_url = LINK_DATABASE[text]
             result_text = (
@@ -165,7 +300,7 @@ async def handle_links(message: Message):
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 البوت يعمل الآن بكفاءة عالية...")
+    print("🤖 البوت يعمل الآن بكفاءة عالية وبدون إعلانات...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
