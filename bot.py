@@ -7,13 +7,6 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-# استيراد آمن لـ Playwright لكي لا يتوقف البوت أبداً إن لم تكن المكتبة مثبتة بالكامل
-try:
-    from playwright.async_api import async_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-
 TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
 bot = Bot(token=TOKEN)
@@ -60,11 +53,11 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.answer("⏳ جاري تحليل الرابط وتصفية المهام واستخراج الهدف النهائي...")
+        processing_msg = await message.answer("⏳ جاري فحص الرابط وتتبع مسار التوجيه وتصفية المهام...")
         
         extracted_url = text
         
-        # قائمة الحظر الشاملة لكل المهام، السوشيال ميديا، وملفات السي دي إن (CDN)
+        # قائمة الحظر الشاملة لكل المهام، السوشيال ميديا، وملفات الـ CDN
         excluded_domains = [
             'boostylink.com', 'rm358.com', 'rtmark.net', 
             'youtube.com', 'youtu.be', 't.me', 'telegram.me',
@@ -73,11 +66,10 @@ async def handle_links(message: Message):
             'jsdelivr', 'jquery', 'bootstrap', 'html5shiv', 'maxcdn.com', 'oss.maxcdn.com'
         ]
         
-        # امتدادات الملفات الممنوعة تماماً (سكربتات، تصميم، صور، ملفات خطوط)
+        # امتدادات الملفات الممنوعة تماماً
         forbidden_extensions = ('.js', '.css', '.png', '.jpg', '.jpeg', '.ico', '.json', '.xml', '.svg', '.woff', '.ttf')
         
         try:
-            # 1. فحص الـ API المباشر (أسرع وأول طريقة)
             scraper = cloudscraper.create_scraper(
                 browser={'browser': 'chrome', 'platform': 'android', 'desktop': False}
             )
@@ -86,6 +78,7 @@ async def handle_links(message: Message):
                 "Referer": text
             }
             
+            # 1. فحص الـ API الرسمي للموقع
             path_parts = text.rstrip('/').split('/')
             slug = path_parts[-1] if path_parts else ""
             if slug and len(slug) > 2:
@@ -102,46 +95,41 @@ async def handle_links(message: Message):
                 except:
                     pass
 
-            # 2. محاولة التجاوز المتقدم عبر المتصفح الوهمي (Playwright) إذا لم ينجح الـ API وكان مدعوماً
-            if extracted_url == text and PLAYWRIGHT_AVAILABLE:
-                try:
-                    async with async_playwright() as p:
-                        browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
-                        context = await browser.new_context(
-                            user_agent="Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-                            viewport={"width": 390, "height": 844}
-                        )
-                        page = await context.new_page()
-                        
-                        captured_links = []
-                        page.on("response", lambda r: captured_links.append(r.url))
-                        
-                        await page.goto(text, timeout=30000)
-                        await page.wait_for_timeout(3000)
-                        
-                        # فحص الروابط المستخرجة من الشبكة
-                        for link in captured_links:
-                            if link and not any(d in link.lower() for d in excluded_domains) and not link.lower().endswith(forbidden_extensions) and link != text and "api" not in link.lower():
-                                extracted_url = link
-                                break
-                        
-                        # فحص روابط الصفحة الحالية إذا لم توجد في الشبكة
-                        if extracted_url == text:
-                            links = await page.evaluate("Array.from(document.querySelectorAll('a')).map(a => a.href)")
-                            for link in links:
-                                if link and not any(d in link.lower() for d in excluded_domains) and not link.lower().endswith(forbidden_extensions) and link != text:
-                                    extracted_url = link
-                                    break
-                        
-                        await browser.close()
-                except:
-                    pass
+            # 2. تتبع مسار التحويلات والروابط المخفية عبر الـ HTTP والـ JavaScript في حال لم يظهر عبر الـ API
+            if extracted_url == text:
+                response = scraper.get(text, headers=headers, allow_redirects=True, timeout=15)
+                html_content = response.text
+                
+                # تتبع سجل الـ Redirects عبر الشبكة
+                if response.history:
+                    for resp in response.history:
+                        loc = resp.headers.get("Location")
+                        if loc and not any(d in loc.lower() for d in excluded_domains):
+                            extracted_url = loc
+                            break
+
+                # البحث عن توجيهات الجافاسكريبت داخل الكود البرمجي
+                if extracted_url == text:
+                    js_redirects = re.findall(r'(?:window\.location|location\.href|href)\s*=\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
+                    for match in js_redirects:
+                        if not any(d in match.lower() for d in excluded_domains) and not match.lower().endswith(forbidden_extensions):
+                            extracted_url = match
+                            break
+
+                # البحث العام عن الروابط وتصفيتها بدقة
+                if extracted_url == text:
+                    found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
+                    for link in found_links:
+                        clean_l = link.rstrip('\\"\'.,;')
+                        if clean_l != text and not any(d in clean_l.lower() for d in excluded_domains) and not clean_l.lower().endswith(forbidden_extensions):
+                            extracted_url = clean_l
+                            break
 
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
             if clean_url == text or any(d in clean_url.lower() for d in excluded_domains) or clean_url.lower().endswith(forbidden_extensions):
-                await processing_msg.edit_text("⚠️ الرابط محمي بمهام تفاعلية مكثفة تتطلب فتح الصفحة يدوياً.")
+                await processing_msg.edit_text("⚠️ لم يتم العثور على رابط وجهة نهائية نظيف، قد يتطلب تفاعلاً يدوياً.")
             else:
                 result_text = (
                     f"🎉 **تم استخراج الرابط الحقيقي بنجاح!**\n\n"
@@ -155,7 +143,7 @@ async def handle_links(message: Message):
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 البوت يعمل الآن بكفاءة ويستمع للأوامر...")
+    print("🤖 البوت يعمل الآن بكفاءة تامة...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
