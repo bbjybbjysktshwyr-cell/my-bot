@@ -15,7 +15,7 @@ dp = Dispatcher()
 
 def get_main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 فحص وتاوز رابط", callback_data="bypass_link")],
+        [InlineKeyboardButton(text="🔗 فحص وتجاوز رابط", callback_data="bypass_link")],
         [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
     ])
 
@@ -122,7 +122,7 @@ async def handle_links(message: Message):
             if extracted_url == text and response.url != text and 'boostylink.com' not in response.url:
                 extracted_url = response.url
 
-            # محطة معالجة إضافية خصيصاً إذا ظهر رابط التتبع rm358
+            # معالجة رابط التتبع rm358 مع استبعاد الروابط غير المرغوبة والـ w3
             if "rm358.com" in extracted_url:
                 try:
                     sub_resp = scraper.get(extracted_url, headers=headers, allow_redirects=True, timeout=15)
@@ -131,13 +131,14 @@ async def handle_links(message: Message):
                     final_match = re.search(r'https?://[^\s<>"\']+(?:target|url|to)=([^\s<>"\']+)', sub_html)
                     if final_match:
                         extracted_url = final_match.group(1)
-                    elif sub_resp.url != extracted_url:
+                    elif sub_resp.url != extracted_url and "rm358.com" not in sub_resp.url:
                         extracted_url = sub_resp.url
                     else:
                         all_sub_links = re.findall(r'https?://[^\s<>"\']+', sub_html)
                         for sl in all_sub_links:
-                            if "rm358.com" not in sl and "boostylink.com" not in sl and "google" not in sl:
-                                extracted_url = sl
+                            clean_sl = sl.rstrip('\\"\'.,;')
+                            if not any(d in clean_sl.lower() for d in ['rm358.com', 'boostylink.com', 'google.com', 'w3.org', 'cloudflare']):
+                                extracted_url = clean_sl
                                 break
                 except:
                     pass
