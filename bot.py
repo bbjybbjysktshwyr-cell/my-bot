@@ -1,11 +1,12 @@
 import os
 import re
 import html
-import json
+import asyncio
 import cloudscraper
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
+from playwright.async_api import async_playwright
 
 TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
@@ -27,14 +28,14 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.reply(
-        "مرحباً بك! أرسل رابط الاختصار وسأقوم بتصفية الروابط وإحضار الهدف النهائي:",
+        "مرحباً بك! أرسل رابط الاختصار وسأقوم بتجاوز المهام وإحضار الرابط الحقيقي:",
         reply_markup=get_main_menu()
     )
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لاستخراج الروابط الأصلية بدقة وتجاوز المهام.",
+        "هذا البوت مخصص لاستخراج الروابط الأصلية عبر التصفح الذكي وتجاوز المهام.",
         reply_markup=get_main_menu()
     )
 
@@ -50,45 +51,39 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تحليل الرابط وتصفية النتائج...")
+        processing_msg = await message.reply("⏳ جاري فحص الرابط وتجاوز المهام...")
         
         extracted_url = text
         
+        # قائمة الحظر الشاملة للمهام والملفات
+        excluded_domains = [
+            'boostylink.com', 'rm358.com', 'rtmark.net', 
+            'youtube.com', 'youtu.be', 't.me', 'telegram.me',
+            'discord.gg', 'discord.com', 'instagram.com', 'facebook.com',
+            'google.com', 'googletagmanager.com', 'cloudflare.com', 'w3.org',
+            'jsdelivr', 'jquery', 'bootstrap', 'html5shiv', 'maxcdn.com', 'oss.maxcdn.com'
+        ]
+        forbidden_extensions = ('.js', '.css', '.png', '.jpg', '.jpeg', '.ico', '.json', '.xml', '.svg', '.woff', '.ttf')
+        
         try:
+            # 1. المحاولة الأولى عبر السكربت السريع والـ API
             scraper = cloudscraper.create_scraper(
-                browser={
-                    'browser': 'chrome',
-                    'platform': 'android',
-                    'desktop': False
-                }
+                browser={'browser': 'chrome', 'platform': 'android', 'desktop': False}
             )
-            
             headers = {
                 "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
                 "Referer": text
             }
             
-            response = scraper.get(text, headers=headers, allow_redirects=True, timeout=20)
+            response = scraper.get(text, headers=headers, allow_redirects=True, timeout=15)
             html_content = response.text
             
-            # --- [التحديث المضاف فوق الأساسيات: قائمة حظر شاملة لكل المهام والملفات والوسائط] ---
-            excluded_domains = [
-                'boostylink.com', 'rm358.com', 'rtmark.net', 
-                'youtube.com', 'youtu.be', 't.me', 'telegram.me',
-                'discord.gg', 'discord.com', 'instagram.com', 'facebook.com',
-                'google.com', 'googletagmanager.com', 'cloudflare.com', 'w3.org',
-                'jsdelivr', 'jquery', 'bootstrap', 'html5shiv', 'maxcdn.com', 'oss.maxcdn.com'
-            ]
-            forbidden_extensions = ('.js', '.css', '.png', '.jpg', '.jpeg', '.ico', '.json', '.xml', '.svg', '.woff', '.ttf')
-            
-            # 1. فحص الـ API الرسمي للمنصة
+            # فحص الـ API
             path_parts = text.rstrip('/').split('/')
             slug = path_parts[-1] if path_parts else ""
             if slug and len(slug) > 2:
                 try:
-                    api_resp = scraper.get(f"https://boostylink.com/api/links/{slug}", headers=headers, timeout=8)
+                    api_resp = scraper.get(f"https://boostylink.com/api/links/{slug}", headers=headers, timeout=6)
                     if api_resp.status_code == 200:
                         api_data = api_resp.json()
                         for key in ["destination", "target_url", "url", "link", "target", "final_url"]:
@@ -100,29 +95,42 @@ async def handle_links(message: Message):
                 except:
                     pass
 
-            # 2. البحث داخل متغيرات السكربتات البرمجية المخفية
+            # 2. المحاولة الثانية عبر المتصفح الوهمي (Playwright) في حال فشل الكود العادي وتطلب تفاعلاً
             if extracted_url == text:
-                js_var_matches = re.findall(r'(?:destination|target|url|link|goUrl|hopUrl|redirect)\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
-                for match in js_var_matches:
-                    if not any(d in match.lower() for d in excluded_domains) and not match.lower().endswith(forbidden_extensions):
-                        extracted_url = match
-                        break
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(headless=True)
+                    page = await browser.new_page(user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                    
+                    await page.goto(text, timeout=40000)
+                    await page.wait_for_timeout(3000)
+                    
+                    # محاولة الضغط على الأزرار الوهمية إن وجدت
+                    for _ in range(3):
+                        try:
+                            buttons = await page.query_selector_all("a.btn, button, .red, .blue, #btn, .unlock-btn")
+                            for btn in buttons:
+                                await btn.click(timeout=1000)
+                                await page.wait_for_timeout(1500)
+                        except:
+                            pass
+                    
+                    links = await page.evaluate("Array.from(document.querySelectorAll('a')).map(a => a.href)")
+                    for link in links:
+                        if link and not any(d in link.lower() for d in excluded_domains) and not link.lower().endswith(forbidden_extensions) and link != text:
+                            extracted_url = link
+                            break
+                    
+                    if extracted_url == text and page.url != text:
+                        if not any(d in page.url.lower() for d in excluded_domains):
+                            extracted_url = page.url
 
-            # 3. الفحص العام وتصفية أي رابط لا يطابق شروط الحظر
-            if extracted_url == text:
-                found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
-                for link in found_links:
-                    clean_l = link.rstrip('\\"\'.,;')
-                    if clean_l != text and not any(d in clean_l.lower() for d in excluded_domains) and not clean_l.lower().endswith(forbidden_extensions):
-                        extracted_url = clean_l
-                        break
+                    await browser.close()
 
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
-            # --- [التحقق النهائي من النتائج] ---
             if clean_url == text or any(d in clean_url.lower() for d in excluded_domains) or clean_url.lower().endswith(forbidden_extensions):
-                await processing_msg.edit_text("⚠️ الرابط محمي بمهام تفاعلية ولا يمكن استخلاص وجهته النهائية إلا بالفتح اليدوي.")
+                await processing_msg.edit_text("⚠️ الرابط محمي بمهام مكثفة ولا يمكن استخلاص وجهته النهائية.")
             else:
                 result_text = (
                     f"🎉 **تم استخراج الرابط الحقيقي بنجاح!**\n\n"
@@ -130,12 +138,11 @@ async def handle_links(message: Message):
                     f"🔔 اضغط على زر النسخ أدناه:"
                 )
                 await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
-            
+                
         except Exception as e:
             await processing_msg.edit_text(f"❌ حدث خطأ:\n`{str(e)}`")
     else:
         await message.reply("يرجى إرسال رابط صالح يبدأ بـ http أو https.")
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(dp.start_polling(bot))
