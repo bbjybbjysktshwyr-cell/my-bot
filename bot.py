@@ -15,26 +15,23 @@ dp = Dispatcher()
 scraper = cloudscraper.create_scraper()
 
 def get_main_menu():
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 فحص وتجاوز رابط", callback_data="bypass_link")],
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 فح وتجاوز رابط", callback_data="bypass_link")],
         [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
     ])
-    return keyboard
 
 def get_copy_keyboard(target_url):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 نسخ الرابط", url=target_url)],
         [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
     ])
-    return keyboard
 
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
-    welcome_text = (
-        "مرحباً بك في بوت تجاوز الروابط الذكي!\n\n"
-        "أرسل لي أي رابط وسأقوم باستخراج الرابط الأصلي بدقة:"
+    await message.reply(
+        "مرحباً بك في بوت تجاوز الروابط الذكي!\n\nأرسل لي أي رابط وسأقوم باستخراج الرابط الأصلي بدقة:",
+        reply_markup=get_main_menu()
     )
-    await message.reply(welcome_text, reply_markup=get_main_menu())
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
@@ -45,74 +42,54 @@ async def about_callback(callback: Message):
 
 @dp.callback_query(F.data == "bypass_link")
 async def bypass_prompt(callback: Message):
-    await callback.message.edit_text(
-        "يرجى إرسال الرابط المطلوب تخطيه مباشرة في المحادثة."
-    )
+    await callback.message.edit_text("يرجى إرسال الرابط المطلوب تخطيه مباشرة في المحادثة.")
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_menu(callback: Message):
-    await callback.message.edit_text(
-        "مرحباً بك مرة أخرى! أرسل الرابط المطلوب تجاوزه:",
-        reply_markup=get_main_menu()
-    )
+    await callback.message.edit_text("أرسل الرابط المطلوب تجاوزه:", reply_markup=get_main_menu())
 
 @dp.message()
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تجاوز الرابط واستخراج الوجهة المخفية...")
+        processing_msg = await message.reply("⏳ جاري تحليل الروابط المخفية واستخراج الوجهة...")
         
         try:
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
                 "Referer": text,
-                "Accept-Language": "ar,en-US;q=0.9,en;q=0.8"
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
             }
             
+            # جلب الصفحة عبر cloudscraper
             response = scraper.get(text, headers=headers, timeout=25, allow_redirects=True)
             html_content = response.text
             
             extracted_url = None
             
-            # 1. البحث عن رابط link-center بشكل مباشر داخل النصوص أو الكود المصدري
-            link_center_match = re.search(r'https?://link-center\.net/[^\s<>"\']+', html_content, re.IGNORECASE)
-            if link_center_match:
-                extracted_url = link_center_match.group(0)
+            # 1. البحث الدقيق عن رابط link-center أينما وجد في الصفحة
+            match_lc = re.search(r'https?://link-center\.net/[^\s<>"\']+', html_content, re.IGNORECASE)
+            if match_lc:
+                extracted_url = match_lc.group(0)
             
-            # 2. البحث داخل روابط الـ Form action أو أزرار التوجيه
+            # 2. البحث عن الروابط الموجودة داخل متغيرات JavaScript مثل window.location أو targetUrl
             if not extracted_url:
-                form_match = re.search(r'<form[^>]+action=["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
-                if form_match:
-                    candidate = form_match.group(1)
-                    if 'boostylink.com' not in candidate:
-                        extracted_url = candidate
-
-            # 3. البحث عن أي روابط مخفية داخل وسوم الـ a أو السكربتات
-            if not extracted_url:
-                all_urls = re.findall(r'https?://[^\s<>"\']+', html_content)
-                ignored = [
-                    'boostylink.com', 'rm358.com', 'googletagmanager.com', 
-                    'google-analytics.com', 'discord.gg', 'youtube.com', 
-                    'youtu.be', 'facebook', 'twitter', 'instagram', 'adsterra',
-                    'cloudflare.com', 'w3.org', 'schema.org', 'jquery', 'bootstrap'
-                ]
-                
-                for u in all_urls:
-                    # تنظيف الرابط من الرموز الزائدة بالنهاية
-                    u_clean = u.rstrip('\\"\'.,;')
-                    if not any(ig in u_clean for ig in ignored) and not u_clean.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg', '.json')):
-                        if u_clean != text:
-                            extracted_url = u_clean
+                js_vars = re.findall(r'["\'](https?://[^"\']+)["\']', html_content)
+                for v in js_vars:
+                    if 'link-center.net' in v or 'download' in v or 'to/' in v:
+                        if 'boostylink.com' not in v:
+                            extracted_url = v
                             break
             
-            # إذا استمر الفشل، نستخدم الرابط النهائي للطلب
+            # 3. إذا لم يوجد، نأخذ الرابط النهائي للـ Redirect
             if not extracted_url or extracted_url == text:
                 extracted_url = response.url
 
-            clean_url = html.unescape(extracted_url)
+            # تنظيف الرابط من أي زوائد
+            clean_url = html.unescape(extracted_url).rstrip('\\"\'.,;')
 
             result_text = (
-                f"🎉 **تم تجاوز الرابط بنجاح!**\n\n"
+                f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
                 f"🔗 `{clean_url}`\n\n"
                 f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
             )
@@ -120,7 +97,7 @@ async def handle_links(message: Message):
             await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
             
         except Exception as e:
-            await processing_msg.edit_text(f"❌ حدث خطأ أثناء تجاوز الرابط:\n`{str(e)}`")
+            await processing_msg.edit_text(f"❌ حدث خطأ:\n`{str(e)}`")
     else:
         await message.reply("يرجى إرسال رابط صالح يبدأ بـ http أو https.")
 
