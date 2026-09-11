@@ -6,7 +6,13 @@ import cloudscraper
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
-from playwright.async_api import async_playwright
+
+# استيراد آمن لـ Playwright لكي لا يتوقف البوت أبداً إن لم تكن المكتبة مثبتة بالكامل
+try:
+    from playwright.async_api import async_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
 
 TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
@@ -27,7 +33,7 @@ def get_copy_keyboard(target_url):
 
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
-    await message.reply(
+    await message.answer(
         "مرحباً بك! أرسل رابط الاختصار وسأقوم بتجاوز المهام وإحضار الرابط الحقيقي:",
         reply_markup=get_main_menu()
     )
@@ -38,24 +44,27 @@ async def about_callback(callback: Message):
         "هذا البوت مخصص لاستخراج الروابط الأصلية وتجاوز المهام بدقة عالية.",
         reply_markup=get_main_menu()
     )
+    await callback.answer()
 
 @dp.callback_query(F.data == "bypass_link")
 async def bypass_prompt(callback: Message):
     await callback.message.edit_text("يرجى إرسال الرابط مباشرة في المحادثة.")
+    await callback.answer()
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_menu(callback: Message):
     await callback.message.edit_text("أرسل الرابط المطلوب فحصه:", reply_markup=get_main_menu())
+    await callback.answer()
 
-@dp.message()
+@dp.message(F.text & ~F.text.startswith("/"))
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري مراقبة الشبكة وتجاوز المهام واكتشاف الرابط...")
+        processing_msg = await message.answer("⏳ جاري تحليل الرابط وتصفية المهام واستخراج الهدف النهائي...")
         
         extracted_url = text
         
-        # قائمة الحظر الشاملة للمهام والملفات
+        # قائمة الحظر الشاملة لكل المهام، السوشيال ميديا، وملفات السي دي إن (CDN)
         excluded_domains = [
             'boostylink.com', 'rm358.com', 'rtmark.net', 
             'youtube.com', 'youtu.be', 't.me', 'telegram.me',
@@ -63,10 +72,12 @@ async def handle_links(message: Message):
             'google.com', 'googletagmanager.com', 'cloudflare.com', 'w3.org',
             'jsdelivr', 'jquery', 'bootstrap', 'html5shiv', 'maxcdn.com', 'oss.maxcdn.com'
         ]
+        
+        # امتدادات الملفات الممنوعة تماماً (سكربتات، تصميم، صور، ملفات خطوط)
         forbidden_extensions = ('.js', '.css', '.png', '.jpg', '.jpeg', '.ico', '.json', '.xml', '.svg', '.woff', '.ttf')
         
         try:
-            # 1. محاولة الفحص السريع عبر الـ API المباشر
+            # 1. فحص الـ API المباشر (أسرع وأول طريقة)
             scraper = cloudscraper.create_scraper(
                 browser={'browser': 'chrome', 'platform': 'android', 'desktop': False}
             )
@@ -91,64 +102,46 @@ async def handle_links(message: Message):
                 except:
                     pass
 
-            # 2. التجاوز المتقدم عبر Playwright مع اعتراض الطلبات (Network Interception)
-            if extracted_url == text:
-                async with async_playwright() as p:
-                    browser = await p.chromium.launch(
-                        headless=True,
-                        args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
-                    )
-                    context = await browser.new_context(
-                        user_agent="Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-                        viewport={"width": 390, "height": 844}
-                    )
-                    page = await context.new_page()
-                    
-                    # التقاط الرابط الحقيقي من استجابات الشبكة الداخلية والخلفية للموقع
-                    captured_links = []
-                    page.on("response", lambda response: captured_links.append(response.url))
-                    
-                    await page.goto(text, timeout=50000)
-                    await page.wait_for_timeout(4000)
-                    
-                    # محاولة النقر المتكرر على الأزرار الوهمية لمحاكاة المستخدم
-                    for _ in range(4):
-                        try:
-                            for selector in ["a.btn", "button", ".red", ".blue", "#btn", ".unlock-btn", "text=Continue", "text=Unlock", "text=Verify"]:
-                                element = await page.query_selector(selector)
-                                if element:
-                                    await element.click(timeout=2000)
-                                    await page.wait_for_timeout(2500)
-                        except:
-                            pass
-                    
-                    await page.wait_for_timeout(3000)
-                    
-                    # فحص الروابط الملتقطة من الشبكة أولاً (أكثر دقة)
-                    for link in captured_links:
-                        if link and not any(d in link.lower() for d in excluded_domains) and not link.lower().endswith(forbidden_extensions) and link != text and "api" not in link.lower():
-                            extracted_url = link
-                            break
-                    
-                    # إذا لم يوجد في الشبكة، نفحص روابط الصفحة الحالية
-                    if extracted_url == text:
-                        links = await page.evaluate("Array.from(document.querySelectorAll('a')).map(a => a.href)")
-                        for link in links:
-                            if link and not any(d in link.lower() for d in excluded_domains) and not link.lower().endswith(forbidden_extensions) and link != text:
+            # 2. محاولة التجاوز المتقدم عبر المتصفح الوهمي (Playwright) إذا لم ينجح الـ API وكان مدعوماً
+            if extracted_url == text and PLAYWRIGHT_AVAILABLE:
+                try:
+                    async with async_playwright() as p:
+                        browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
+                        context = await browser.new_context(
+                            user_agent="Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+                            viewport={"width": 390, "height": 844}
+                        )
+                        page = await context.new_page()
+                        
+                        captured_links = []
+                        page.on("response", lambda r: captured_links.append(r.url))
+                        
+                        await page.goto(text, timeout=30000)
+                        await page.wait_for_timeout(3000)
+                        
+                        # فحص الروابط المستخرجة من الشبكة
+                        for link in captured_links:
+                            if link and not any(d in link.lower() for d in excluded_domains) and not link.lower().endswith(forbidden_extensions) and link != text and "api" not in link.lower():
                                 extracted_url = link
                                 break
-                    
-                    if extracted_url == text and page.url != text:
-                        if not any(d in page.url.lower() for d in excluded_domains):
-                            extracted_url = page.url
-
-                    await browser.close()
+                        
+                        # فحص روابط الصفحة الحالية إذا لم توجد في الشبكة
+                        if extracted_url == text:
+                            links = await page.evaluate("Array.from(document.querySelectorAll('a')).map(a => a.href)")
+                            for link in links:
+                                if link and not any(d in link.lower() for d in excluded_domains) and not link.lower().endswith(forbidden_extensions) and link != text:
+                                    extracted_url = link
+                                    break
+                        
+                        await browser.close()
+                except:
+                    pass
 
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
             if clean_url == text or any(d in clean_url.lower() for d in excluded_domains) or clean_url.lower().endswith(forbidden_extensions):
-                await processing_msg.edit_text("⚠️ الموقع يتطلب تحقق بشري (Captcha) ولا يمكن تجاوزه تلقائياً بالكامل.")
+                await processing_msg.edit_text("⚠️ الرابط محمي بمهام تفاعلية مكثفة تتطلب فتح الصفحة يدوياً.")
             else:
                 result_text = (
                     f"🎉 **تم استخراج الرابط الحقيقي بنجاح!**\n\n"
@@ -159,8 +152,11 @@ async def handle_links(message: Message):
                 
         except Exception as e:
             await processing_msg.edit_text(f"❌ حدث خطأ:\n`{str(e)}`")
-    else:
-        await message.reply("يرجى إرسال رابط صالح يبدأ بـ http أو https.")
+
+async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("🤖 البوت يعمل الآن بكفاءة ويستمع للأوامر...")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(dp.start_polling(bot))
+    asyncio.run(main())
