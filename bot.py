@@ -1,4 +1,4 @@
-وتجاوز os
+import os
 import requests
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -13,7 +13,7 @@ dp = Dispatcher()
 # القائمة الرئيسية مع الأزرار التفاعلية
 def get_main_menu():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 فحصوتجاوز رابط", callback_data="bypass_link")],
+        [InlineKeyboardButton(text="🔗 فحص وتجاوز رابط", callback_data="bypass_link")],
         [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
     ])
     return keyboard
