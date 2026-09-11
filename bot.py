@@ -9,7 +9,7 @@ from aiogram.filters import Command
 
 TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
-# تم ضبط الآيدي الخاص بك كمدير للبوت
+# الآيدي الخاص بك كمدير للبوت
 ADMIN_ID = 6697426766
 
 bot = Bot(token=TOKEN)
@@ -21,15 +21,14 @@ LINK_DATABASE = {
     "https://boostylink.com/nYsaet7F": "https://bstshrt.com/u/vc691v"
 }
 
-# تخزين مؤقت لآخر رابط أرسله المستخدم لسهولة إضافته بضغطة زر
+# تخزين مؤقت للرابط المراد إضافته
 PENDING_LINKS = {}
 
-def get_main_menu(is_admin=False):
-    keyboard = [
+def get_main_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 الروابط المدعومة", callback_data="supported_links")],
         [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+    ])
 
 def get_copy_keyboard(target_url):
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -41,25 +40,23 @@ def get_copy_keyboard(target_url):
 async def send_welcome(message: Message):
     await message.answer(
         "مرحباً بك! أرسل رابط الاختصار وسأقوم باستخراج الرابط:",
-        reply_markup=get_main_menu(message.from_user.id == ADMIN_ID)
+        reply_markup=get_main_menu()
     )
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: CallbackQuery):
-    is_admin = callback.from_user.id == ADMIN_ID
     await callback.message.edit_text(
         "هذا البوت مخصص لاستخراج الروابط الأصلية وتجاوز صفحات الاختصار بدقة وسرعة.",
-        reply_markup=get_main_menu(is_admin)
+        reply_markup=get_main_menu()
     )
     await callback.answer()
 
 @dp.callback_query(F.data == "supported_links")
 async def supported_links_callback(callback: CallbackQuery):
-    links_list = "\n".join([f"• `{k}`" for k in LINK_DATABASE.keys()]) if LINK_DATABASE else "لا توجد روابط مخزنة حالياً."
     supported_text = (
-        f"📋 **الروابط والخدمات المدعومة حالياً:**\n\n"
-        f"{links_list}\n\n"
-        f"💡 *أرسل أي رابط من القائمة وسأستخرج هدفه فوراً!*"
+        "📋 **الروابط والخدمات المدعومة حالياً:**\n\n"
+        "• `https://boostylink.com`\n\n"
+        "💡 *أرسل أي رابط مدعوم وسأستخرج هدفه فوراً!*"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
@@ -69,12 +66,11 @@ async def supported_links_callback(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_menu(callback: CallbackQuery):
-    is_admin = callback.from_user.id == ADMIN_ID
-    await callback.message.edit_text("أرسل الرابط المطلوب فحصه:", reply_markup=get_main_menu(is_admin))
+    await callback.message.edit_text("أرسل الرابط المطلوب فحصه:", reply_markup=get_main_menu())
     await callback.answer()
 
-# زر تفاعلي يظهر للمدير فقط عند إرسال رابط غير موجود لإضافته بضغطة زر
-@dp.callback_query(F.data.startswith("add_quick_"))
+# زر الإضافة السريعة للمدير
+@dp.callback_query(F.data == "add_quick_link")
 async def quick_add_callback(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("❌ هذا الزر لمدير البوت فقط!", show_alert=True)
@@ -83,12 +79,38 @@ async def quick_add_callback(callback: CallbackQuery):
     short_link = PENDING_LINKS.get(callback.from_user.id)
     if short_link:
         await callback.message.edit_text(
-            f"✍️ يرجى إرسال الرابط النهائي (الهدف) الخاص بهذا الرابط:\n`{short_link}`\n\n"
-            f"بصيغة:\n`/add الهدف` أو قم بإرساله مباشرة كـ رد (Reply) على رسالة البوت."
+            f"✍️ لكي يتم حفظ هذا الرابط:\n`{short_link}`\n\n"
+            f"أرسل لي الآن رسالة بهذا الشكل:\n"
+            f"`/add الرابط_النهائي`\n"
+            f"(مثال: `/add https://example.com/target`)"
         )
     else:
         await callback.message.edit_text("⚠️ انتهت صلاحية الرابط، أرسله من جديد.")
     await callback.answer()
+
+# أمر الإضافة المباشر للمدير
+@dp.message(Command("add"))
+async def add_new_link(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    try:
+        target_link = message.text.replace("/add", "").strip()
+        short_link = PENDING_LINKS.get(message.from_user.id)
+        
+        if short_link and target_link:
+            LINK_DATABASE[short_link] = target_link
+            await message.answer(
+                f"✅ **تمت إضافة الرابط بنجاح!**\n\n"
+                f"🔗 الاختصار: `{short_link}`\n"
+                f"🎯 الهدف: `{target_link}`"
+            )
+            # مسح الرابط المؤقت
+            PENDING_LINKS.pop(message.from_user.id, None)
+        else:
+            await message.answer("⚠️ يجدر بك إرسال الرابط غير المعروف أولاً، ثم الضغط على زر الإضافة ثم إرسال الهدف.")
+    except Exception as e:
+        await message.answer(f"❌ حدث خطأ: `{str(e)}`")
 
 @dp.message(F.text & ~F.text.startswith("/"))
 async def handle_links(message: Message):
@@ -107,7 +129,7 @@ async def handle_links(message: Message):
             await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
             return
 
-        # 2. محاولة التتبع
+        # 2. التتبع التلقائي
         extracted_url = text
         try:
             scraper = cloudscraper.create_scraper(
@@ -128,7 +150,6 @@ async def handle_links(message: Message):
             clean_url = re.sub(r'\s+', '', clean_url)
 
             if clean_url == text:
-                # إذا كان المرسل هو أنت (المدير)، سنعرض لك زر "إضافة للقاعدة" فوراً
                 if message.from_user.id == ADMIN_ID:
                     PENDING_LINKS[message.from_user.id] = text
                     admin_keyboard = InlineKeyboardMarkup(inline_keyboard=[
