@@ -1,7 +1,6 @@
 import os
 import re
 import html
-import base64
 import asyncio
 import cloudscraper
 from aiogram import Bot, Dispatcher, F
@@ -28,7 +27,7 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.answer(
-        "مرحباً بك! أرسل رابط الاختصار وسأقوم باستخراج الرابط الحقيقي:",
+        "مرحباً بك! أرسل رابط الاختصار وسأقوم باستخراج الرابط:",
         reply_markup=get_main_menu()
     )
 
@@ -54,19 +53,9 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.answer("⏳ جاري فحص الرابط وتفكيك طبقات الحماية...")
+        processing_msg = await message.answer("⏳ جاري تتبع مسار الرابط واستخراج الوجهة...")
         
         extracted_url = text
-        
-        excluded_domains = [
-            'boostylink.com', 'link-center.net', 'rm358.com', 'rtmark.net', 
-            'youtube.com', 'youtu.be', 't.me', 'telegram.me',
-            'discord.gg', 'discord.com', 'instagram.com', 'facebook.com',
-            'google.com', 'googletagmanager.com', 'cloudflare.com', 'w3.org',
-            'jsdelivr', 'jquery', 'bootstrap', 'html5shiv', 'maxcdn.com', 'oss.maxcdn.com',
-            'aclib.eu', 'propellerclick.com'
-        ]
-        forbidden_extensions = ('.js', '.css', '.png', '.jpg', '.jpeg', '.ico', '.json', '.xml', '.svg', '.woff', '.ttf')
         
         try:
             scraper = cloudscraper.create_scraper(
@@ -77,69 +66,38 @@ async def handle_links(message: Message):
                 "Referer": text
             }
             
-            # 1. محاولة فحص الـ API المحتمل للمواقع
-            path_parts = text.rstrip('/').split('/')
-            slug = path_parts[-1] if path_parts else ""
-            if slug and len(slug) > 2:
-                for api_endpoint in [f"https://boostylink.com/api/links/{slug}", f"https://link-center.net/api/links/{slug}"]:
-                    try:
-                        api_resp = scraper.get(api_endpoint, headers=headers, timeout=5)
-                        if api_resp.status_code == 200:
-                            api_data = api_resp.json()
-                            for key in ["destination", "target_url", "url", "link", "target", "final_url"]:
-                                if key in api_data and api_data[key]:
-                                    val = str(api_data[key])
-                                    if not any(d in val.lower() for d in excluded_domains) and not val.lower().endswith(forbidden_extensions):
-                                        extracted_url = val
-                                        break
-                    except:
-                        pass
-
-            # 2. فحص محتوى الصفحة وتتبع مسارات التحويل
+            # إيقاف التتبع التلقائي لمعرفة رابط التحويل المباشر
+            response = scraper.get(text, headers=headers, allow_redirects=False, timeout=10)
+            
+            # فحص الـ Redirect المباشر (مثل Location header)
+            if response.status_code in [301, 302, 303, 307, 308]:
+                redirect_target = response.headers.get("Location")
+                if redirect_target:
+                    extracted_url = redirect_target
+            
+            # إذا لم يوجد تحويل مباشر، نقوم بعمل تتبع مع السماح بالتحويلات والبحث عن link-center
             if extracted_url == text:
-                response = scraper.get(text, headers=headers, allow_redirects=True, timeout=15)
-                html_content = response.text
-                
-                # تتبع الـ Redirect History
-                if response.history:
-                    for resp in response.history:
+                response_full = scraper.get(text, headers=headers, allow_redirects=True, timeout=15)
+                if response_full.history:
+                    for resp in response_full.history:
                         loc = resp.headers.get("Location")
-                        if loc and not any(d in loc.lower() for d in excluded_domains):
+                        if loc and "link-center.net" in loc:
                             extracted_url = loc
                             break
-
-                # البحث عن الروابط المشفرة أو المخفية داخل النصوص والسكريبتات
-                if extracted_url == text:
-                    js_matches = re.findall(r'(?:window\.location|location\.href|href|destination|url|link)\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
-                    for match in js_matches:
-                        if not any(d in match.lower() for d in excluded_domains) and not match.lower().endswith(forbidden_extensions):
-                            extracted_url = match
-                            break
-
-                # البحث عن أي روابط مدمجة داخل وسوم الـ a أو السكريبتات
-                if extracted_url == text:
-                    found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
-                    valid_candidates = []
-                    for link in found_links:
-                        clean_l = link.rstrip('\\"\'.,;')
-                        if clean_l != text and not any(d in clean_l.lower() for d in excluded_domains) and not clean_l.lower().endswith(forbidden_extensions):
-                            valid_candidates.append(clean_l)
-                    
-                    if valid_candidates:
-                        extracted_url = max(valid_candidates, key=len)
+                    if extracted_url == text and response_full.history:
+                        extracted_url = response_full.history[-1].headers.get("Location", text)
 
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
-            if clean_url == text or any(d in clean_url.lower() for d in excluded_domains) or clean_url.lower().endswith(forbidden_extensions):
+            if clean_url == text:
                 await processing_msg.edit_text(
-                    "⚠️ **عذراً، هذا الرابط يتطلب تفاعلاً بشرياً عميقاً (تخطي يدوي)**\n\n"
-                    "يمكنك فتحه ونسخه من هنا:",
+                    "⚠️ لم يتم استخراج الرابط تلقائياً، يمكنك فتحه يدوياً:",
                     reply_markup=get_copy_keyboard(text)
                 )
             else:
                 result_text = (
-                    f"🎉 **تم استخراج الرابط الحقيقي بنجاح!**\n\n"
+                    f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
                     f"🔗 {clean_url}\n\n"
                     f"🔔 اضغط على زر النسخ أدناه:"
                 )
