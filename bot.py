@@ -11,7 +11,6 @@ TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# إنشاء سكربت تجاوز الكلاود فلير
 scraper = cloudscraper.create_scraper()
 
 def get_main_menu():
@@ -39,7 +38,7 @@ async def send_welcome(message: Message):
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لتجاوز الروابط واستخراج الرابط الأصلي.",
+        "هذا البوت مخصص لتجاوز الروابط واستخراج الرابط الأصلي بدقة.",
         reply_markup=get_main_menu()
     )
 
@@ -67,21 +66,27 @@ async def handle_links(message: Message):
             html_content = response.text
             final_url = response.url
             
-            # البحث عن متغيرات التوجيه أو الروابط المقصودة داخل سكربتات الصفحة
-            target_match = re.search(r'(?:url|redirect|target|link)["\']?\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
-            
             extracted_url = None
-            if target_match:
-                extracted_url = target_match.group(1)
-            else:
-                # نبحث عن أول رابط صالح داخل الصفحة لا يخص الدومين الحالي
-                urls_found = re.findall(r'https?://[^\s<>"]+', html_content)
-                for u in urls_found:
-                    if text not in u and 'boostylink.com' not in u and not u.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg', '.json')):
-                        extracted_url = u
-                        break
             
-            # إذا لم نجد رابط خارجي، نعتمد الرابط النهائي للـ Redirect
+            # 1. البحث أولاً عن روابط فيديوهات يوتيوب الفعلية (مثل youtu.be أو youtube.com/watch)
+            yt_match = re.search(r'(https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)[^\s<>"\']+)', html_content)
+            if yt_match:
+                extracted_url = yt_match.group(1)
+            else:
+                # 2. البحث عن متغيرات التوجيه المعتادة
+                target_match = re.search(r'(?:url|redirect|target|link|destination)["\']?\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
+                if target_match:
+                    extracted_url = target_match.group(1)
+                else:
+                    # 3. البحث العام مع استبعاد القنوات وروابط السوشيال ميديا العامة
+                    urls_found = re.findall(r'https?://[^\s<>"]+', html_content)
+                    ignored = ['boostylink.com', 'googletagmanager.com', 'discord.gg', '@', 'facebook', 'twitter', 'instagram']
+                    for u in urls_found:
+                        if text not in u and not any(i in u for i in ignored) and not u.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg')):
+                            extracted_url = u
+                            break
+            
+            # إذا لم نجد شيئاً، نعتمد الرابط النهائي
             if not extracted_url or extracted_url == text:
                 extracted_url = final_url
 
