@@ -15,6 +15,21 @@ ADMIN_ID = 6697426766
 # يوزر تيليجرام الخاص بك للدعم الفني
 SUPPORT_USER_URL = "https://t.me/AL_shz1"
 
+# 🎛️ يمكنك تغيير أسماء الأزرار والنصوص من هنا بكل سهولة في أي وقت:
+BUTTON_TEXTS = {
+    "supported_links": "🔗 الروابط المدعومة",
+    "bypass_link": "⚡️ تجاوز رابط",
+    "about": "ℹ️ حول البوت",
+    "admin_panel": "⚙️ لوحة تحكم المدير",
+    "broadcast": "💬 إرسال إذاعة للكل",
+    "maintenance": "🛠️ تفعيل وضع الصيانة",
+    "maintenance_off": "🟢 إلغاء وضع الصيانة",
+    "back_to_menu": "🔙 رجوع للقائمة",
+    "copy_link": "📋 نسخ الرابط",
+    "support": "👨‍💻 تواصل مع الدعم الفني",
+    "cancel": "❌ إلغاء"
+}
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
@@ -26,34 +41,37 @@ LINK_DATABASE = {
 
 USERS_SET = set()
 ADMIN_STATE = {}
+MAINTENANCE_MODE = False  # حالة وضع الصيانة (معطلة افتراضياً)
 
 def get_main_menu(is_admin=False):
     keyboard = [
-        [InlineKeyboardButton(text="🔗 الروابط المدعومة", callback_data="supported_links")],
-        [InlineKeyboardButton(text="⚡️ تجاوز رابط", callback_data="bypass_link")],
-        [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
+        [InlineKeyboardButton(text=BUTTON_TEXTS["supported_links"], callback_data="supported_links")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["bypass_link"], callback_data="bypass_link")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["about"], callback_data="about")]
     ]
     if is_admin:
-        keyboard.append([InlineKeyboardButton(text="⚙️ لوحة تحكم المدير", callback_data="admin_panel")])
+        keyboard.append([InlineKeyboardButton(text=BUTTON_TEXTS["admin_panel"], callback_data="admin_panel")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_admin_menu():
+    m_text = BUTTON_TEXTS["maintenance_off"] if MAINTENANCE_MODE else BUTTON_TEXTS["maintenance"]
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 إرسال إذاعة للكل", callback_data="start_broadcast")],
-        [InlineKeyboardButton(text="🔙 عودة للقائمة الرئيسية", callback_data="back_to_menu")]
+        [InlineKeyboardButton(text=BUTTON_TEXTS["broadcast"], callback_data="start_broadcast")],
+        [InlineKeyboardButton(text=m_text, callback_data="toggle_maintenance")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
     ])
 
 def get_copy_keyboard(target_url):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 نسخ الرابط", url=target_url)],
-        [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
+        [InlineKeyboardButton(text=BUTTON_TEXTS["copy_link"], url=target_url)],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
     ])
 
 def get_unknown_link_keyboard(target_url):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 نسخ الرابط", url=target_url)],
-        [InlineKeyboardButton(text="👨‍💻 تواصل مع الدعم الفني", url=SUPPORT_USER_URL)],
-        [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
+        [InlineKeyboardButton(text=BUTTON_TEXTS["copy_link"], url=target_url)],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
     ])
 
 @dp.message(Command("start"))
@@ -71,11 +89,27 @@ async def admin_panel_callback(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("للمدير فقط!", show_alert=True)
         return
+    status_text = "🟢 (المصنوع حالياً: يعمل بشكل طبيعي)" if not MAINTENANCE_MODE else "🔴 (المصنوع حالياً: وضع الصيانة مفعل)"
     await callback.message.edit_text(
-        "⚙️ **لوحة تحكم المدير:**\n\nتحكم في إعدادات البوت والخدمات من الأزرار أدناه:",
+        f"⚙️ **لوحة تحكم المدير:**\n\nحالة البوت: {status_text}\n\nتحكم في إعدادات البوت من الأزرار أدناه:",
         reply_markup=get_admin_menu()
     )
     await callback.answer()
+
+@dp.callback_query(F.data == "toggle_maintenance")
+async def toggle_maintenance_callback(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    global MAINTENANCE_MODE
+    MAINTENANCE_MODE = not MAINTENANCE_MODE
+    state_msg = "تم تفعيل وضع الصيانة بنجاح 🔴" if MAINTENANCE_MODE else "تم إيقاف وضع الصيانة وعمل البوت بشكل طبيعي 🟢"
+    await callback.answer(state_msg, show_alert=True)
+    
+    status_text = "🟢 (الحالة: يعمل بشكل طبيعي)" if not MAINTENANCE_MODE else "🔴 (الحالة: وضع الصيانة مفعل)"
+    await callback.message.edit_text(
+        f"⚙️ **لوحة تحكم المدير:**\n\nحالة البوت: {status_text}\n\nتحكم في إعدادات البوت من الأزرار أدناه:",
+        reply_markup=get_admin_menu()
+    )
 
 @dp.callback_query(F.data == "start_broadcast")
 async def start_broadcast_callback(callback: CallbackQuery):
@@ -83,7 +117,7 @@ async def start_broadcast_callback(callback: CallbackQuery):
         return
     ADMIN_STATE[callback.from_user.id] = "waiting_broadcast"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ إلغاء", callback_data="admin_panel")]
+        [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_panel")]
     ])
     await callback.message.edit_text(
         "📢 **وضع الإذاعة نشط:**\n\nأرسل الآن الرسالة التي تريد إذاعتها لجميع المستخدمين (صورة، نص، أو فيديو):",
@@ -103,7 +137,7 @@ async def about_callback(callback: CallbackQuery):
 @dp.callback_query(F.data == "bypass_link")
 async def bypass_prompt(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
+        [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
     ])
     await callback.message.edit_text(
         "⚡️ **أرسل الرابط المختصر الآن في المحادثة مباشرة وسأقوم باستخراج هدفه النهائي لك!**",
@@ -119,7 +153,7 @@ async def supported_links_callback(callback: CallbackQuery):
         "💡 *أرسل أي رابط مدعوم وسأستخرج هدفه فوراً!*"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
+        [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
     ])
     await callback.message.edit_text(supported_text, reply_markup=keyboard)
     await callback.answer()
@@ -160,6 +194,17 @@ async def add_new_link(message: Message):
 async def handle_messages(message: Message):
     user_id = message.from_user.id
     
+    # التحقق من وضع الصيانة للمستخدمين العاديين
+    if MAINTENANCE_MODE and user_id != ADMIN_ID:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)]
+        ])
+        await message.answer(
+            "🛠️ **البوت متوقف حالياً للصيانة والتحديث.**\n\nيرجى المحاولة لاحقاً أو التواصل مع الدعم الفني.",
+            reply_markup=keyboard
+        )
+        return
+
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_broadcast":
         ADMIN_STATE.pop(user_id, None)
         sent_count = 0
