@@ -20,7 +20,7 @@ def get_main_menu():
 
 def get_copy_keyboard(target_url):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 نخ الرابط", url=target_url)],
+        [InlineKeyboardButton(text="📋 نسخ الرابط", url=target_url)],
         [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
     ])
     return keyboard
@@ -57,52 +57,47 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري محاكاة المتصفح وسحب الرابط الحقيقي...")
+        processing_msg = await message.reply("⏳ جاري فتح المتصفح وتجاوز الحماية استخراج الرابط...")
         
         extracted_url = None
         
         try:
+            # تشغيل متصفح خفي (Headless Browser) عبر Playwright لتنفيذ الجافاسكريبت والوصول للرابط النهائي
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-                )
+                page = await browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 
-                # فتح الرابط وانتظار تحميل الشبكة بالكامل
-                await page.goto(text, timeout=40000, wait_until="domcontentloaded")
+                # الانتقال للرابط والانتظار حتى يتم تحميل محتوى الصفحة بالكامل
+                await page.goto(text, timeout=30000, wait_until="networkidle")
                 
-                # انتظار إضافي لضمان عمل السكربتات والعدّادات واختفاء الحماية
-                await page.wait_for_timeout(6000)
+                # إعطاء مهلة صغيرة لضمان ظهور الرابط النهائي بعد الـ Redirect أو توليده ديناميكياً
+                await page.wait_for_timeout(5000)
                 
-                # البحث عن أي رابط يحتوي على link-center أو أي وجهة نهائية داخل الصفحة
-                links = await page.eval_on_selector_all("a", "elements => elements.map(e => e.href)")
-                for l in links:
-                    if l and "link-center.net" in l:
-                        extracted_url = l
-                        break
+                current_url = page.url
                 
-                # إذا لم يوجد في الروابط، نبحث في محتوى الـ HTML كامل عن رابط الـ link-center
-                if not extracted_url:
-                    content = await page.content()
-                    import re
-                    match = re.search(r'https?://link-center\.net/[^\s<>"\']+', content)
-                    if match:
-                        extracted_url = match.group(0)
-                
-                # إذا لم نجده، نأخذ عنوان الصفحة الحالي بعد التوجيه
-                if not extracted_url:
-                    current_url = page.url
-                    if current_url != text:
+                # التحقق إذا كان الرابط الحالي قد تحول إلى الرابط المطلوب (مثل link-center.net)
+                if "link-center.net" in current_url or "boostylink.com" not in current_url:
+                    extracted_url = current_url
+                else:
+                    # محاولة البحث عن روابط إعادة التوجيه أو الـ href داخل أزرار التجهيز بالصفحة
+                    links = await page.eval_on_selector_all("a", "elements => elements.map(e => e.href)")
+                    for l in links:
+                        if l and "link-center.net" in l:
+                            extracted_url = l
+                            break
+                            
+                    if not extracted_url:
                         extracted_url = current_url
-                    else:
-                        extracted_url = text
                         
                 await browser.close()
+                
+            if not extracted_url or extracted_url == text:
+                extracted_url = text
 
             clean_url = html.unescape(extracted_url)
 
             result_text = (
-                f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
+                f"🎉 **تم تجاوز الرابط بنجاح!**\n\n"
                 f"🔗 `{clean_url}`\n\n"
                 f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
             )
@@ -110,7 +105,7 @@ async def handle_links(message: Message):
             await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
             
         except Exception as e:
-            await processing_msg.edit_text(f"❌ حدث خطأ:\n`{str(e)}`")
+            await processing_msg.edit_text(f"❌ حدث خطأ أثناء تجاوز الرابط:\n`{str(e)}`")
     else:
         await message.reply("يرجى إرسال رابط صالح يبدأ بـ http أو https.")
 
