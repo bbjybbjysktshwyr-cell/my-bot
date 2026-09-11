@@ -28,7 +28,7 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.reply(
-        "مرحباً بك في بوت تجاوز الروابط المحلي!\n\nأرسل لي أي رابط وسأقوم باستخراج الوجهة المخفية:",
+        "مرحباً بك في بوت تجاوز الروابط المحلي!\n\nأرسل لي أي رابط وسأقوم باستخراج الوجهة النهائية بدقة:",
         reply_markup=get_main_menu()
     )
 
@@ -51,12 +51,11 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري فحص الرابط محلياً...")
+        processing_msg = await message.reply("⏳ جاري تحليل الرابط وتجاوز المهام...")
         
         extracted_url = text
         
         try:
-            # تهيئة كلوود سكريبر مع محاكاة متصفح أندرويد حقيقي
             scraper = cloudscraper.create_scraper(
                 browser={
                     'browser': 'chrome',
@@ -70,50 +69,70 @@ async def handle_links(message: Message):
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
                 "Referer": text,
-                "X-Requested-With": "XMLHttpRequest" # غالباً المواقع تستخدم هذا الهيدر لطلبات الـ AJAX
+                "X-Requested-With": "XMLHttpRequest"
             }
             
-            # جلب الصفحة الأساسية
             response = scraper.get(text, headers=headers, allow_redirects=True, timeout=25)
             html_content = response.text
             
-            # محاولة البحث عن أي روابط مخفية داخل كود الـ JSON أو متغيرات الـ Script داخل الصفحة
-            # في كثير من الأحيان تكون الروابط مخفية بصيغة JSON ضمن سكربتات الصفحة
-            json_match = re.search(r'(\{.*?"url"\s*:\s*"https?://[^"]+".*?\})', html_content)
-            if json_match:
+            # استخراج المعرف الفريد من الرابط (Token/ID)
+            path_parts = text.rstrip('/').split('/')
+            slug = path_parts[-1] if path_parts else ""
+            
+            # محاكاة طلب الـ API الخلفي الخاص بالموقع لجلب الرابط النهائي المخفي خلف زر Unlock
+            if slug and len(slug) > 2:
+                api_target_url = f"https://boostylink.com/api/links/{slug}" # محاولة فحص الـ endpoint الداخلي
                 try:
-                    data = json.loads(json_match.group(1))
-                    if "url" in data:
-                        extracted_url = data["url"]
+                    api_resp = scraper.get(api_target_url, headers=headers, timeout=10)
+                    if api_resp.status_code == 200:
+                        api_data = api_resp.json()
+                        if "destination" in api_data:
+                            extracted_url = api_data["destination"]
+                        elif "url" in api_data:
+                            extracted_url = api_data["url"]
                 except:
                     pass
-            
-            # إذا لم يتم العثور عليها عبر الـ JSON، نبحث عن الروابط النصية الصريحة مع استبعاد الروابط الوهمية
+
+            # فحص إضافي عبر تحليل الـ JavaScript المتغير أو الـ JSON المتقدم في الصفحة إذا فشل الـ API المباشر
+            if extracted_url == text:
+                json_matches = re.findall(r'(\{.*?"(?:destination|target_url|link|redirect_url)"\s*:\s*"https?://[^"]+".*?\})', html_content)
+                for j_m in json_matches:
+                    try:
+                        data = json.loads(j_m)
+                        for key in ["destination", "target_url", "link", "redirect_url"]:
+                            if key in data and "boostylink.com" not in data[key]:
+                                extracted_url = data[key]
+                                break
+                    except:
+                        continue
+
+            # إذا استمر الرابط بدون تغيير، نقوم بفلترة جميع الروابط واستبعاد قنوات المهام (يوتيوب وديسكورد)
             if extracted_url == text:
                 found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
                 ignored_domains = [
                     'boostylink.com', 'google.com', 'cloudflare.com', 'w3.org', 
+                    'youtube.com', 'youtu.be', 'discord.gg', 'discord.com', 't.me',
                     'maxcdn', 'jsdelivr', 'jquery', 'bootstrap', 'googletagmanager', 
                     'analytics', '#', 'javascript'
                 ]
                 
                 for link in found_links:
                     clean_l = link.rstrip('\\"\'.,;')
+                    # التأكد من عدم كون الرابط تابعاً لوسائل التواصل الخاصة بالمهام
                     if not any(domain in clean_l.lower() for domain in ignored_domains) and clean_l != text:
-                        if not clean_l.startswith('#'):
+                        if not clean_l.startswith('#') and ('/' in clean_l.replace('https://', '').replace('http://', '')):
                             extracted_url = clean_l
                             break
 
-            # إذا استمر الرابط كما هو ولم يتغير، نتحقق من الـ Redirect النهائي للسيرفر
+            # التحقق النهائي من الـ Redirect
             if extracted_url == text and response.url != text and 'boostylink.com' not in response.url:
                 extracted_url = response.url
 
-            # تنظيف الرابط النهائي تماماً من أي مسافات أو رموز زائدة
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
             result_text = (
-                f"🎉 **تم الاستخراج بنجاح!**\n\n"
+                f"🎉 **تم استخراج الرابط الحقيقي بنجاح!**\n\n"
                 f"🔗 {clean_url}\n\n"
                 f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
             )
