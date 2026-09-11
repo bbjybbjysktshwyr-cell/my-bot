@@ -27,14 +27,14 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.reply(
-        "مرحباً بك! أرسل لي رابط الاختصار وسأقوم بفحصه بدقة:",
+        "مرحباً بك! أرسل لي رابط الاختصار وسأقوم باستخراج الرابط الأصلي بدقة:",
         reply_markup=get_main_menu()
     )
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لفحص وتجاوز روابط الاختصار.",
+        "هذا البوت مخصص لاستخراج الروابط الأصلية وتصفية روابط المهام.",
         reply_markup=get_main_menu()
     )
 
@@ -50,7 +50,7 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تحليل الرابط وتصفية الإعلانات...")
+        processing_msg = await message.reply("⏳ جاري تحليل الصفحة وتجاوز روابط مهام يوتيوب...")
         
         extracted_url = text
         
@@ -73,7 +73,7 @@ async def handle_links(message: Message):
             response = scraper.get(text, headers=headers, allow_redirects=True, timeout=20)
             html_content = response.text
             
-            # محاولة جلب الرابط عبر الـ API الخاص بـ Boostylink
+            # محاولة فحص الـ API الخاص بالمنصة أولاً
             path_parts = text.rstrip('/').split('/')
             slug = path_parts[-1] if path_parts else ""
             if slug and len(slug) > 2:
@@ -81,22 +81,22 @@ async def handle_links(message: Message):
                     api_resp = scraper.get(f"https://boostylink.com/api/links/{slug}", headers=headers, timeout=8)
                     if api_resp.status_code == 200:
                         api_data = api_resp.json()
-                        for key in ["destination", "target_url", "url", "link"]:
+                        for key in ["destination", "target_url", "url", "link", "target"]:
                             if key in api_data and api_data[key]:
                                 val = api_data[key]
-                                if not any(d in val for d in ["boostylink.com", "rm358.com", "googletagmanager"]):
+                                if not any(d in val for d in ["boostylink.com", "rm358.com", "youtube.com", "youtu.be", "t.me"]):
                                     extracted_url = val
                                     break
                 except:
                     pass
 
-            # قائمة تجاهل صارمة تمنع التقاط خدمات جوجل، الإعلانات، أو سكربتات التتبع
+            # البحث في الروابط مع تجاهل تان ومواقع التواصل الخاصة بالمهام تماماً
             if extracted_url == text:
                 found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
                 ignored_keywords = [
                     'boostylink.com', 'google.com', 'googletagmanager.com', 'cloudflare.com', 
-                    'w3.org', 'rm358.com', 'rtmark.net', 'jsdelivr', 'maxcdn', 'jquery', 
-                    'bootstrap', 'html5shiv', 'analytics', 'gtag', '.js', '.css', '.png', '.ico'
+                    'w3.org', 'rm358.com', 'rtmark.net', 'youtube.com', 'youtu.be', 't.me', 
+                    'instagram.com', 'facebook.com', 'jsdelivr', 'jquery', 'bootstrap', 'html5shiv', '.js', '.css', '.png', '.ico'
                 ]
                 
                 for link in found_links:
@@ -108,17 +108,11 @@ async def handle_links(message: Message):
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
-            # إذا لم يتمكن النظام من العثور على وجهة حقيقية بسبب حماية المهام
-            if clean_url == text or "boostylink.com" in clean_url or "rm358.com" in clean_url or "googletagmanager" in clean_url:
-                result_text = (
-                    f"🛡️ **هذا الرابط يحتاج إلى إتمام المهام (اشتراك/متابعة)**\n\n"
-                    f"لا يمكن استخراج الوجهة تلقائياً لأن النظام يتطلب نقراً بشرياً حقيقياً على أزرار التحقق.\n\n"
-                    f"الرابط الوسيط: \n`{text}`"
-                )
-                await processing_msg.edit_text(result_text)
+            if clean_url == text or any(d in clean_url for d in ["boostylink.com", "rm358.com", "youtube.com"]):
+                await processing_msg.edit_text("⚠️ الرابط محمي بمهام تفاعلية ولا يمكن استخراج وجهته إلا بعد تجاوز أزرار الموقع يدوياً.")
             else:
                 result_text = (
-                    f"🎉 **تم استخراج الرابط النهائي بنجاح!**\n\n"
+                    f"🎉 **تم استخراج الرابط الأصلي بنجاح!**\n\n"
                     f"🔗 {clean_url}\n\n"
                     f"🔔 اضغط على زر النسخ أدناه:"
                 )
