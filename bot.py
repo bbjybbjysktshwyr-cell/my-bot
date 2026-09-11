@@ -15,7 +15,7 @@ dp = Dispatcher()
 
 def get_main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 فحص وجاوز رابط", callback_data="bypass_link")],
+        [InlineKeyboardButton(text="🔗 فحص وتجاوز رابط", callback_data="bypass_link")],
         [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
     ])
 
@@ -51,7 +51,7 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تفكيك روابط التتبع والوصول للوجهة الأخيرة...")
+        processing_msg = await message.reply("⏳ جاري تفكيك الروابط وتتبع التوجيهات النهائية...")
         
         extracted_url = text
         
@@ -122,30 +122,31 @@ async def handle_links(message: Message):
             if extracted_url == text and response.url != text and 'boostylink.com' not in response.url:
                 extracted_url = response.url
 
-            # معالجة روابط التتبع المتقدمة واستخراج روابط الـ JavaScript (مثل window.location)
-            if any(domain in extracted_url for domain in ["rm358.com", "rtmark.net"]):
+            # حلقة تتبع ذكية للروابط الوسيطة (مثل rm358 أو rtmark) عبر تتبع رأس الاستجابة والتحويلات
+            redirect_count = 0
+            while any(domain in extracted_url for domain in ["rm358.com", "rtmark.net"]) and redirect_count < 5:
                 try:
-                    sub_resp = scraper.get(extracted_url, headers=headers, allow_redirects=True, timeout=15)
-                    sub_html = sub_resp.text
+                    redirect_count += 1
+                    # تعطيل الـ redirects التلقائية مؤقتاً لنتمكن من قراءة هيدر التحويل (Location) يدوياً
+                    sub_resp = scraper.get(extracted_url, headers=headers, allow_redirects=False, timeout=10)
                     
-                    loc_match = re.search(r'(?:window\.)?location(?:\.href)?\s*=\s*["\'](https?://[^"\']+)["\']', sub_html, re.IGNORECASE)
-                    if loc_match:
-                        extracted_url = loc_match.group(1)
+                    if "Location" in sub_resp.headers:
+                        next_url = sub_resp.headers["Location"]
+                        # إذا كان رابط التحويل نسبياً، نربطه بالدومين الأصلي
+                        if next_url.startswith("/"):
+                            parsed_base = re.match(r'(https?://[^/]+)', extracted_url)
+                            next_url = parsed_base.group(1) + next_url if parsed_base else next_url
+                        extracted_url = next_url
                     else:
-                        final_match = re.search(r'https?://[^\s<>"\']+(?:target|url|to|dest)=([^\s<>"\']+)', sub_html)
-                        if final_match:
-                            extracted_url = final_match.group(1)
-                        elif sub_resp.url != extracted_url and not any(d in sub_resp.url for d in ["rm358.com", "rtmark.net", "boostylink.com"]):
-                            extracted_url = sub_resp.url
+                        # إذا لم يوجد هيدر تحويل، نفحص محتوى الصفحة عن أي سكربت تحويل
+                        sub_html = sub_resp.text
+                        loc_match = re.search(r'(?:window\.)?location(?:\.href)?\s*=\s*["\'](https?://[^"\']+)["\']', sub_html, re.IGNORECASE)
+                        if loc_match:
+                            extracted_url = loc_match.group(1)
                         else:
-                            all_sub_links = re.findall(r'https?://[^\s<>"\']+', sub_html)
-                            for sl in all_sub_links:
-                                clean_sl = sl.rstrip('\\"\'.,;')
-                                if not any(d in clean_sl.lower() for d in ['rm358.com', 'rtmark.net', 'boostylink.com', 'google.com', 'w3.org', 'cloudflare', 'img.gif']):
-                                    extracted_url = clean_sl
-                                    break
+                            break
                 except:
-                    pass
+                    break
 
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
