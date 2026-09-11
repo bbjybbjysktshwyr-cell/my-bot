@@ -31,14 +31,14 @@ def get_copy_keyboard(target_url):
 async def send_welcome(message: Message):
     welcome_text = (
         "مرحباً بك في بوت تجاوز الروابط الذكي!\n\n"
-        "أرسل لي أي رابط وسأقوم باستخراج الرابط الأصلي بدقة:"
+        "أرسل لي أي رابط وسأقوم باستخراج الرابط الأصلي المخفي بدقة:"
     )
     await message.reply(welcome_text, reply_markup=get_main_menu())
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لتجاوز الروابط واستخراج الرابط الأصلي بدقة.",
+        "هذا البوت مخصص لتجاوز روابط الحماية واستخراج الرابط النهائي.",
         reply_markup=get_main_menu()
     )
 
@@ -59,39 +59,44 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري التجاوز... يرجى الانتظار.")
+        processing_msg = await message.reply("⏳ جاري تحليل وفحص الروابط المخفية...")
         
         try:
             response = scraper.get(text, timeout=20, allow_redirects=True)
             html_content = response.text
-            final_url = response.url
             
             extracted_url = None
             
-            # 1. البحث أولاً عن روابط فيديوهات يوتيوب الفعلية (مثل youtu.be أو youtube.com/watch)
-            yt_match = re.search(r'(https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)[^\s<>"\']+)', html_content)
-            if yt_match:
-                extracted_url = yt_match.group(1)
-            else:
-                # 2. البحث عن متغيرات التوجيه المعتادة
-                target_match = re.search(r'(?:url|redirect|target|link|destination)["\']?\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
-                if target_match:
-                    extracted_url = target_match.group(1)
-                else:
-                    # 3. البحث العام مع استبعاد القنوات وروابط السوشيال ميديا العامة
-                    urls_found = re.findall(r'https?://[^\s<>"]+', html_content)
-                    ignored = ['boostylink.com', 'googletagmanager.com', 'discord.gg', '@', 'facebook', 'twitter', 'instagram']
-                    for u in urls_found:
-                        if text not in u and not any(i in u for i in ignored) and not u.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg')):
-                            extracted_url = u
-                            break
+            # البحث عن الروابط المخفية داخل متغيرات جافاسكريبت أو بيانات الـ JSON في الصفحة (مثل target_url أو final_url أو destination)
+            script_matches = re.findall(r'["\'](?:target|destination|finalUrl|redirect_url|link)["\']\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
             
-            # إذا لم نجد شيئاً، نعتمد الرابط النهائي
+            if script_matches:
+                # تصفية الروابط المستخرجة لتجنب روابط الموقع نفسه
+                valid_links = [l for l in script_matches if 'boostylink.com' not in l]
+                if valid_links:
+                    extracted_url = valid_links[0]
+            
+            # إذا لم نجدها في المتغيرات، نبحث عن أحدث رابط تم إضافته في السكربتات والذي لا ينتمي للأزرار الظاهرة
+            if not extracted_url:
+                all_urls = re.findall(r'https?://[^\s<>"\']+', html_content)
+                # استبعاد روابط الأزرار المعروفة (مثل اليوتيوب الخاص بالمهام أو الديسكورد الأساسي) والرابط الأصلي
+                ignored = ['boostylink.com', 'googletagmanager.com', 'discord.gg', 'youtube.com/@', 'youtu.be/@']
+                
+                filtered = []
+                for u in all_urls:
+                    if text not in u and not any(ig in u for ig in ignored) and not u.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg')):
+                        filtered.append(u)
+                
+                if filtered:
+                    # غالباً الرابط المستهدف يكون آخر رابط أو رابط مختلف تماماً عن قنوات الأزرار
+                    extracted_url = filtered[-1]
+            
+            # إذا بقي الحال كما هو، نستخدم رابط التوجيه النهائي
             if not extracted_url or extracted_url == text:
-                extracted_url = final_url
+                extracted_url = response.url
 
             result_text = (
-                f"🎉 **تم تجاوز الرابط بنجاح!**\n\n"
+                f"🎉 **تم استخراج الرابط النهائي بنجاح!**\n\n"
                 f"🔗 `{extracted_url}`\n\n"
                 f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
             )
