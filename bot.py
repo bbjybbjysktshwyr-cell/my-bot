@@ -1,15 +1,18 @@
 import os
+import re
 import html
+import cloudscraper
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
-from playwright.async_api import async_playwright
 
 # توكن البوت
 TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
+scraper = cloudscraper.create_scraper()
 
 def get_main_menu():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -57,42 +60,55 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري فتح المتصفح وتجاوز الحماية استخراج الرابط...")
-        
-        extracted_url = None
+        processing_msg = await message.reply("⏳ جاري تجاوز الرابط واستخراج الوجهة المخفية...")
         
         try:
-            # تشغيل متصفح خفي (Headless Browser) عبر Playwright لتنفيذ الجافاسكريبت والوصول للرابط النهائي
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            # ضبط هيدرز تشبه المتصفح الحقيقي تماماً
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                "Referer": text,
+                "Accept-Language": "en-US,en;q=0.9"
+            }
+            
+            response = scraper.get(text, headers=headers, timeout=25, allow_redirects=True)
+            html_content = response.text
+            
+            extracted_url = None
+            
+            # البحث عن الرابط داخل حقول الـ input المخفية (غالباً المواقع تخزن الرابط النهائي في input باسم target أو url أو final)
+            input_match = re.search(r'<(?:input|a|meta)[^>]+(?:value|href)=["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
+            if input_match:
+                candidate = input_match.group(1)
+                if 'boostylink.com' not in candidate and 'rm358.com' not in candidate:
+                    extracted_url = candidate
+            
+            # البحث داخل بيانات الـ JSON أو متغيرات الـ JavaScript المعقدة
+            if not extracted_url:
+                json_matches = re.findall(r'["\'](https?://(?:link-center|shope|mega|mediafire|drive|t\.me)[^\s<>"\']+)["\']', html_content, re.IGNORECASE)
+                if json_matches:
+                    extracted_url = json_matches[0]
+            
+            # إذا لم نجد، نبحث عن أي رابط خارج نطاق الموقع والإعلانات
+            if not extracted_url:
+                all_urls = re.findall(r'https?://[^\s<>"\']+', html_content)
+                ignored = [
+                    'boostylink.com', 'rm358.com', 'googletagmanager.com', 
+                    'google-analytics.com', 'discord.gg', 'youtube.com', 
+                    'youtu.be', 'facebook', 'twitter', 'instagram', 'adsterra',
+                    'cloudflare.com', 'w3.org', 'schema.org'
+                ]
                 
-                # الانتقال للرابط والانتظار حتى يتم تحميل محتوى الصفحة بالكامل
-                await page.goto(text, timeout=30000, wait_until="networkidle")
+                filtered = []
+                for u in all_urls:
+                    if text not in u and not any(ig in u for ig in ignored) and not u.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg', '.json')):
+                        filtered.append(u)
                 
-                # إعطاء مهلة صغيرة لضمان ظهور الرابط النهائي بعد الـ Redirect أو توليده ديناميكياً
-                await page.wait_for_timeout(5000)
-                
-                current_url = page.url
-                
-                # التحقق إذا كان الرابط الحالي قد تحول إلى الرابط المطلوب (مثل link-center.net)
-                if "link-center.net" in current_url or "boostylink.com" not in current_url:
-                    extracted_url = current_url
-                else:
-                    # محاولة البحث عن روابط إعادة التوجيه أو الـ href داخل أزرار التجهيز بالصفحة
-                    links = await page.eval_on_selector_all("a", "elements => elements.map(e => e.href)")
-                    for l in links:
-                        if l and "link-center.net" in l:
-                            extracted_url = l
-                            break
-                            
-                    if not extracted_url:
-                        extracted_url = current_url
-                        
-                await browser.close()
-                
+                if filtered:
+                    extracted_url = filtered[0] # أخذ أول رابط حقيقي مكتشف
+            
+            # إذا استمر الفشل، نستخدم الرابط النهائي للردتレクト
             if not extracted_url or extracted_url == text:
-                extracted_url = text
+                extracted_url = response.url
 
             clean_url = html.unescape(extracted_url)
 
