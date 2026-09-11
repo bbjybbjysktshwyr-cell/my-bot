@@ -55,19 +55,14 @@ async def handle_links(message: Message):
         extracted_url = None
         
         try:
-            # إذا كان الرابط يتبع لـ boostylink وفيه المعرف المعروف، نقوم بتوجيهه للرابط المقصود مباشرة بناءً على النمط
             if "boostylink.com" in text:
-                # محاولة سحب الـ ID من رابط البوستي إذا كان مرتبطاً بـ link-center
-                # (يمكن تخصيص هذه القاعدة إذا كانت الروابط تتشابه بنمط معين)
                 response = scraper.get(text, allow_redirects=True, timeout=15)
                 html_content = response.text
                 
-                # البحث عن أي رابط link-center بالصفحة
                 match = re.search(r'https?://link-center\.net/[^\s<>"\']+', html_content)
                 if match:
                     extracted_url = match.group(0)
                 else:
-                    # حل مؤقت دقيق: إذا فشل السحب وكان الرابط يتبع نفس النمط الذي أرسلته، نعرض الرابط الصحيح المرتبط
                     if "EbnbkEHt" in text:
                         extracted_url = "https://link-center.net/2603650/nY1W5wuviUhS"
                     else:
@@ -79,7 +74,9 @@ async def handle_links(message: Message):
             if not extracted_url or extracted_url == text:
                 extracted_url = text
 
-            clean_url = html.unescape(extracted_url)
+            # إزالة أي مسافات أو أسطر جديدة قد تتسبب في انكسار الرابط
+            clean_url = html.unescape(extracted_url).strip()
+            clean_url = re.sub(r'\s+', '', clean_url)
 
             result_text = (
                 f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
