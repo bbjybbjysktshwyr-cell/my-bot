@@ -16,8 +16,15 @@ scraper = cloudscraper.create_scraper()
 
 def get_main_menu():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 فحتجاوز رابط", callback_data="bypass_link")],
+        [InlineKeyboardButton(text="🔗 فحص وتجاوز رابط", callback_data="bypass_link")],
         [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
+    ])
+    return keyboard
+
+def get_copy_keyboard(target_url):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 نسخ الرابط", url=target_url)],
+        [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
     ])
     return keyboard
 
@@ -25,14 +32,14 @@ def get_main_menu():
 async def send_welcome(message: Message):
     welcome_text = (
         "مرحباً بك في بوت تجاوز الروابط الذكي!\n\n"
-        "أرسل لي أي رابط (مثل Boosty) وسأقوم بفحصه واستخراج الرابط المخفي:"
+        "أرسل لي أي رابط وسأقوم باستخراج الرابط الأصلي بدقة:"
     )
     await message.reply(welcome_text, reply_markup=get_main_menu())
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لتجاوز الروابط وحماية Cloudflare واستخراج الروابط الداخلية.",
+        "هذا البوت مخصص لتجاوز الروابط واستخراج الرابط الأصلي.",
         reply_markup=get_main_menu()
     )
 
@@ -42,38 +49,52 @@ async def bypass_prompt(callback: Message):
         "يرجى إرسال الرابط المطلوب تخطيه مباشرة في المحادثة."
     )
 
+@dp.callback_query(F.data == "back_to_menu")
+async def back_menu(callback: Message):
+    await callback.message.edit_text(
+        "مرحباً بك مرة أخرى! أرسل الرابط المطلوب تجاوزه:",
+        reply_markup=get_main_menu()
+    )
+
 @dp.message()
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("جارٍ فحص الصفحة والبحث عن الرابط المخفي...")
+        processing_msg = await message.reply("⏳ جاري التجاوز... يرجى الانتظار.")
         
         try:
-            response = scraper.get(text, timeout=20)
+            response = scraper.get(text, timeout=20, allow_redirects=True)
             html_content = response.text
+            final_url = response.url
             
-            # البحث عن روابط خارجية أو روابط توجيه داخل HTML باستخدام Regular Expressions
-            urls_found = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', html_content)
+            # البحث عن متغيرات التوجيه أو الروابط المقصودة داخل سكربتات الصفحة
+            target_match = re.search(r'(?:url|redirect|target|link)["\']?\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
             
-            # تصفية الروابط واستبعاد روابط الموقع نفسه أو الملفات البرمجية
-            filtered_urls = [u for u in set(urls_found) if text not in u and 'boostylink.com' not in u and not u.endswith(('.css', '.js', '.png', '.jpg', '.ico'))]
-            
-            if filtered_urls:
-                links_text = "\n".join(filtered_urls[:5]) # عرض أول 5 روابط يتم العثور عليها
-                result_text = (
-                    f"✅ **تم استخراج الروابط من الصفحة بنجاح!**\n\n"
-                    f"🔗 **الروابط المكتشفة:**\n{links_text}"
-                )
+            extracted_url = None
+            if target_match:
+                extracted_url = target_match.group(1)
             else:
-                result_text = (
-                    f"🔗 **الرابط النهائي:**\n{response.url}\n\n"
-                    f"⚠️ لم يتم العثور على روابط توجيه مخفية داخل الصفحة، قد يتطلب تفاعلاً يدوياً."
-                )
-                
-            await processing_msg.edit_text(result_text)
+                # نبحث عن أول رابط صالح داخل الصفحة لا يخص الدومين الحالي
+                urls_found = re.findall(r'https?://[^\s<>"]+', html_content)
+                for u in urls_found:
+                    if text not in u and 'boostylink.com' not in u and not u.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg', '.json')):
+                        extracted_url = u
+                        break
+            
+            # إذا لم نجد رابط خارجي، نعتمد الرابط النهائي للـ Redirect
+            if not extracted_url or extracted_url == text:
+                extracted_url = final_url
+
+            result_text = (
+                f"🎉 **تم تجاوز الرابط بنجاح!**\n\n"
+                f"🔗 `{extracted_url}`\n\n"
+                f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
+            )
+            
+            await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(extracted_url))
             
         except Exception as e:
-            await processing_msg.edit_text(f"❌ حدث خطأ أثناء فحص الرابط:\n`{str(e)}`")
+            await processing_msg.edit_text(f"❌ حدث خطأ أثناء تجاوز الرابط:\n`{str(e)}`")
     else:
         await message.reply("يرجى إرسال رابط صالح يبدأ بـ http أو https.")
 
