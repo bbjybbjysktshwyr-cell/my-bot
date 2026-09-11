@@ -31,8 +31,7 @@ BUTTON_TEXTS = {
     "about": "ℹ️ حول البوت",
     "admin_panel": "⚙️ لوحة تحكم المدير",
     "broadcast": "💬 إرسال إذاعة للكل",
-    "add_custom_btn": "➕ إضافة زر جديد للقائمة",
-    "change_names": "✏️ تغيير أسماء الأزرار",
+    "manage_buttons": "🎛️ إدارة الأزرار (إضافة/حذف)",
     "maintenance": "🛠️ تفعيل وضع الصيانة",
     "maintenance_off": "🟢 إلغاء وضع الصيانة",
     "back_to_menu": "🔙 رجوع للقائمة",
@@ -41,9 +40,11 @@ BUTTON_TEXTS = {
     "cancel": "❌ إلغاء"
 }
 
-# قائمة الأزرار الإضافية التي يضيفها المدير (تخزين مؤقت)
-# الصيغة: {"اسم_الزر": "الرابط_أو_المحتوى"}
-CUSTOM_BUTTONS = {}
+# هياكل تخزين الأزرار المخصصة والمتداخلة
+# CUSTOM_BUTTONS تخزن الأزرار الرئيسية الإضافية
+# SUB_BUTTONS تخزن الأزرار التي بداخل الأزرار (الأزرار المتداخلة)
+CUSTOM_BUTTONS = {}  # الصيغة: {"اسم_الزر": {"type": "link/menu", "content": "رابط_أو_نص"}}
+SUB_BUTTONS = {}     # الصيغة: {"اسم_الزر_الرئيسي": {"اسم_الزر_الفرعي": "رابط_أو_نص"}}
 
 USERS_SET = set()
 ADMIN_STATE = {}
@@ -56,12 +57,12 @@ def get_main_menu(is_admin=False):
         [InlineKeyboardButton(text=BUTTON_TEXTS["about"], callback_data="about")]
     ]
     
-    # إضافة الأزرار المخصصة التي أضافها المدير للقائمة الرئيسية
-    for btn_name, btn_url in CUSTOM_BUTTONS.items():
-        if btn_url.startswith("http"):
-            keyboard.append([InlineKeyboardButton(text=btn_name, url=btn_url)])
+    # إضافة الأزرار المخصصة للقائمة الرئيسية
+    for btn_name, data in CUSTOM_BUTTONS.items():
+        if data["type"] == "link":
+            keyboard.append([InlineKeyboardButton(text=btn_name, url=data["content"])])
         else:
-            keyboard.append([InlineKeyboardButton(text=btn_name, callback_data=f"custom_cb_{btn_name}")])
+            keyboard.append([InlineKeyboardButton(text=btn_name, callback_data=f"sub_menu_{btn_name}")])
 
     if is_admin:
         keyboard.append([InlineKeyboardButton(text=BUTTON_TEXTS["admin_panel"], callback_data="admin_panel")])
@@ -71,8 +72,7 @@ def get_admin_menu():
     m_text = BUTTON_TEXTS["maintenance_off"] if MAINTENANCE_MODE else BUTTON_TEXTS["maintenance"]
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=BUTTON_TEXTS["broadcast"], callback_data="start_broadcast")],
-        [InlineKeyboardButton(text=BUTTON_TEXTS["add_custom_btn"], callback_data="start_add_btn")],
-        [InlineKeyboardButton(text=BUTTON_TEXTS["change_names"], callback_data="open_change_names")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["manage_buttons"], callback_data="manage_buttons_menu")],
         [InlineKeyboardButton(text=m_text, callback_data="toggle_maintenance")],
         [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
     ])
@@ -112,52 +112,131 @@ async def admin_panel_callback(callback: CallbackQuery):
     )
     await callback.answer()
 
-# بدء إضافة زر جديد
+# قائمة إدارة الأزرار (إضافة أو حذف)
+@dp.callback_query(F.data == "manage_buttons_menu")
+async def manage_buttons_menu(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ إضافة زر جديد للقائمة الرئيسية", callback_data="start_add_btn")],
+        [InlineKeyboardButton(text="➕ إضافة زر بداخل زر (قائمة فرعية)", callback_data="start_add_sub_btn")],
+        [InlineKeyboardButton(text="🗑️ حذف زر موجود", callback_data="start_delete_btn")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="admin_panel")]
+    ])
+    await callback.message.edit_text(
+        "🎛️ **قسم إدارة وصناعة الأزرار:**\n\nاختر ما ترغب به:",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+# 1. إضافة زر جديد رئيسي
 @dp.callback_query(F.data == "start_add_btn")
 async def start_add_btn(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         return
     ADMIN_STATE[callback.from_user.id] = "waiting_btn_name"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_panel")]
+        [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="manage_buttons_menu")]
     ])
     await callback.message.edit_text(
-        "➕ **إضافة زر جديد للقائمة الرئيسية:**\n\nأرسل الآن **اسم الزر** الذي تريده (مثلاً: 📢 قناتنا على تيليجرام):",
+        "➕ **إضافة زر رئيسي جديد:**\n\nأرسل الآن **اسم الزر** (مثلاً: 📢 قناتنا):",
         reply_markup=keyboard
     )
     await callback.answer()
 
-@dp.callback_query(F.data == "open_change_names")
-async def open_change_names(callback: CallbackQuery):
+# 2. إضافة زر بداخل زر (زر متداخل)
+@dp.callback_query(F.data == "start_add_sub_btn")
+async def start_add_sub_btn(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         return
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="تغيير زر: الروابط المدعومة", callback_data="edit_supported_links")],
-        [InlineKeyboardButton(text="تغيير زر: تجاوز رابط", callback_data="edit_bypass_link")],
-        [InlineKeyboardButton(text="تغيير زر: حول البوت", callback_data="edit_about")],
-        [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="admin_panel")]
-    ])
+    if not CUSTOM_BUTTONS:
+        await callback.answer("⚠️ يجب أن تبتكر زر رئيسي من نوع 'قائمة' أولاً لتضع بداخله أزراراً!", show_alert=True)
+        return
+    
+    # عرض الأزرار الرئيسية المتاحة لوضع أزرار بداخلها
+    kb = []
+    for b_name, data in CUSTOM_BUTTONS.items():
+        if data["type"] == "menu":
+            kb.append([InlineKeyboardButton(text=b_name, callback_data=f"pick_parent_{b_name}")])
+    kb.append([InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="manage_buttons_menu")])
+    
     await callback.message.edit_text(
-        "✏️ **اختر الزر الأساسي الذي تريد تغيير اسمه:**",
-        reply_markup=keyboard
+        "📂 **اختر الزر الرئيسي الذي تريد وضع زر بداخله:**",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
     )
     await callback.answer()
 
-@dp.callback_query(F.data.startswith("edit_"))
-async def start_editing_button(callback: CallbackQuery):
+@dp.callback_query(F.data.startswith("pick_parent_"))
+async def pick_parent_button(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         return
-    btn_key = callback.data.replace("edit_", "")
-    ADMIN_STATE[callback.from_user.id] = f"changing_btn_{btn_key}"
+    parent_name = callback.data.replace("pick_parent_", "")
+    ADMIN_STATE[callback.from_user.id] = f"waiting_sub_name_{parent_name}"
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="open_change_names")]
+        [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="manage_buttons_menu")]
     ])
     await callback.message.edit_text(
-        f"✍️ **أرسل الاسم الجديد لهذا الزر في المحادثة:**",
+        f"📥 **أنت تضيف زر داخل:** `[{parent_name}]`\n\nأرسل الآن **اسم الزر الداخلي الجديد**:",
         reply_markup=keyboard
     )
     await callback.answer()
+
+# 3. حذف زر
+@dp.callback_query(F.data == "start_delete_btn")
+async def start_delete_btn(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    if not CUSTOM_BUTTONS:
+        await callback.answer("⚠️ لا توجد أزرار مخصصة لحذفها!", show_alert=True)
+        return
+    
+    kb = []
+    for b_name in CUSTOM_BUTTONS.keys():
+        kb.append([InlineKeyboardButton(text=f"🗑️ حذف: {b_name}", callback_data=f"del_btn_{b_name}")])
+    kb.append([InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="manage_buttons_menu")])
+    
+    await callback.message.edit_text(
+        "🗑️ **اختر الزر الذي تريد حذفه:**",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("del_btn_"))
+async def delete_specific_button(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    btn_name = callback.data.replace("del_btn_", "")
+    CUSTOM_BUTTONS.pop(btn_name, None)
+    SUB_BUTTONS.pop(btn_name, None)
+    
+    await callback.answer(f"✅ تم حذف الزر '{btn_name}' بنجاح!", show_alert=True)
+    await manage_buttons_menu(callback)
+
+# التعامل مع الضغط على الزر المتداخل (الذي بداخله أزرار)
+@dp.callback_query(F.data.startswith("sub_menu_"))
+async def open_sub_menu(callback: CallbackQuery):
+    main_btn = callback.data.replace("sub_menu_", "")
+    sub_dict = SUB_BUTTONS.get(main_btn, {})
+    
+    keyboard = []
+    for s_name, s_url in sub_dict.items():
+        if s_url.startswith("http"):
+            keyboard.append([InlineKeyboardButton(text=s_name, url=s_url)])
+        else:
+            keyboard.append([InlineKeyboardButton(text=s_name, callback_data="sub_info_msg")])
+            
+    keyboard.append([InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")])
+    
+    await callback.message.edit_text(
+        f"📁 **أنت الآن في قائمة:** `{main_btn}`\n\nاختر من الأزرار أدناه:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "sub_info_msg")
+async def sub_info_msg(callback: CallbackQuery):
+    await callback.answer("هذا زر فرعي مخصص!", show_alert=True)
 
 @dp.callback_query(F.data == "toggle_maintenance")
 async def toggle_maintenance_callback(callback: CallbackQuery):
@@ -183,7 +262,7 @@ async def start_broadcast_callback(callback: CallbackQuery):
         [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_panel")]
     ])
     await callback.message.edit_text(
-        "📢 **وضع الإذاعة نشط:**\n\nأرسل الآن الرسالة التي تريد إرسالها لجميع المستخدمين:",
+        "📢 **وضع الإذاعة نشط:**\n\nأرسل الآن الرسالة التي تريد إذاعتها للمستخدمين:",
         reply_markup=keyboard
     )
     await callback.answer()
@@ -211,7 +290,7 @@ async def bypass_prompt(callback: CallbackQuery):
 @dp.callback_query(F.data == "supported_links")
 async def supported_links_callback(callback: CallbackQuery):
     supported_text = (
-        "📋 **الروابط والخدمات المدعومة في البوت:**\n\n"
+        "📋 **الروابط والروابط المدعومة:**\n\n"
         "• `https://boostylink.com`\n\n"
         "💡 *أرسل أي رابط مدعوم وسأستخرج هدفه فوراً!*"
     )
@@ -235,37 +314,51 @@ async def back_menu(callback: CallbackQuery):
 async def handle_messages(message: Message):
     user_id = message.from_user.id
     
-    # 1. استقبال اسم الزر الجديد
+    # 1. استقبال اسم الزر الرئيسي الجديد
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_btn_name":
         btn_name = message.text.strip()
-        ADMIN_STATE[user_id] = f"waiting_btn_url_{btn_name}"
-        await message.answer(
-            f"✅ ممتاز! اسم الزر: `{btn_name}`\n\n🔗 الآن أرسل **الرابط** الذي سيفتح عندما يضغط المستخدم على هذا الزر (مثلاً رابط قناتك `https://t.me/...`):"
-        )
+        ADMIN_STATE[user_id] = f"waiting_btn_type_{btn_name}"
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔗 زر يفتح رابط مباشر", callback_data=f"btype_link_{btn_name}")],
+            [InlineKeyboardButton(text="📂 زر يفتح قائمة (بداخله أزرار)", callback_data=f"btype_menu_{btn_name}")]
+        ])
+        await message.answer(f"✅ اسم الزر: `{btn_name}`\n\nاختر نوع هذا الزر:", reply_markup=keyboard)
         return
 
-    # 2. استقبال رابط الزر الجديد وحفظه
+    # استقبال نوع الزر (رابط أم قائمة)
+    if user_id == ADMIN_ID and message.text and ("btype_link_" in ADMIN_STATE.get(user_id, "") or "btype_menu_" in ADMIN_STATE.get(user_id, "")):
+        pass # يُعالج عبر الـ Callback بالأفل
+
+    # 2. استقبال رابط الزر الرئيسي المباشر
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_btn_url_"):
         btn_name = ADMIN_STATE.pop(user_id).replace("waiting_btn_url_", "")
         btn_url = message.text.strip()
-        CUSTOM_BUTTONS[btn_name] = btn_url
+        CUSTOM_BUTTONS[btn_name] = {"type": "link", "content": btn_url}
         
-        await message.answer(
-            f"🎉 **تمت إضافة الزر الجديد بنجاح إلى القائمة الرئيسية!**\n\n🏷️ الاسم: `{btn_name}`\n🔗 الرابط: `{btn_url}`",
-            reply_markup=get_admin_menu()
-        )
+        await message.answer(f"🎉 **تمت إضافة الزر بنجاح للقائمة الرئيسية!**\n🏷️ الاسم: `{btn_name}`\n🔗 الرابط: `{btn_url}`", reply_markup=get_admin_menu())
         return
 
-    # 3. تغيير اسم الزر الأساسي
-    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("changing_btn_"):
-        btn_key = ADMIN_STATE.pop(user_id).replace("changing_btn_", "")
-        new_name = message.text.strip()
-        BUTTON_TEXTS[btn_key] = new_name
+    # 3. استقبال تفاصيل الزر الداخلي (الذي بداخل الزر)
+    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_sub_name_"):
+        parent_name = ADMIN_STATE.pop(user_id).replace("waiting_sub_name_", "")
+        sub_name = message.text.strip()
+        ADMIN_STATE[user_id] = f"waiting_sub_url_{parent_name}_{sub_name}"
         
-        await message.answer(
-            f"✅ **تم تحديث اسم الزر بنجاح إلى:** `{new_name}`",
-            reply_markup=get_admin_menu()
-        )
+        await message.answer(f"✅ اسم الزر الداخلي: `{sub_name}`\n\n🔗 الآن أرسل **الرابط** الذي سيفتحه هذا الزر الداخلي:")
+        return
+
+    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_sub_url_"):
+        parts = ADMIN_STATE.pop(user_id).replace("waiting_sub_url_", "").split("_", 1)
+        parent_name = parts[0]
+        sub_name = parts[1]
+        sub_url = message.text.strip()
+        
+        if parent_name not in SUB_BUTTONS:
+            SUB_BUTTONS[parent_name] = {}
+        SUB_BUTTONS[parent_name][sub_name] = sub_url
+        
+        await message.answer(f"🎉 **تمت إضافة الزر الداخلي بنجاح!**\n📁 بداخل: `{parent_name}`\n🏷️ الزر: `{sub_name}`\n🔗 الرابط: `{sub_url}`", reply_markup=get_admin_menu())
         return
 
     # 4. وضع الصيانة
@@ -274,17 +367,17 @@ async def handle_messages(message: Message):
             [InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)]
         ])
         await message.answer(
-            "🛠️ **البوت متوقف حالياً للصيانة والتحديث.**\n\nيرجى المحاولة لاحقاً أو التواصل مع الدعم الفني.",
+            "🛠️ **البوت متوقف حالياً للصيانة والتحديث.**\n\nيرجى المحاولة لاحقاً.",
             reply_markup=keyboard
         )
         return
 
-    # 5. نظام الإذاعة
+    # 5. الإذاعة
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_broadcast":
         ADMIN_STATE.pop(user_id, None)
         sent_count = 0
         fail_count = 0
-        status_msg = await message.answer("⏳ جاري بدء الإذاعة لجميع المستخدمين...")
+        status_msg = await message.answer("⏳ جاري بدء الإذاعة للمستخدمين...")
         
         for uid in USERS_SET:
             try:
@@ -294,25 +387,17 @@ async def handle_messages(message: Message):
             except Exception:
                 fail_count += 1
                 
-        await status_msg.edit_text(
-            f"✅ **تم إكمال الإذاعة بنجاح!**\n\n"
-            f"📤 تم الإرسال إلى: `{sent_count}` مستخدماً\n"
-            f"❌ فشل الإرسال لـ: `{fail_count}` مستخدماً"
-        )
+        await status_msg.edit_text(f"✅ **تمت الإذاعة بنجاح!**\n📤 تم الإرسال إلى: `{sent_count}` مستخدماً")
         return
 
-    # 6. فحص الروابط واستخراجها
+    # 6. معالجة الروابط
     text = message.text.strip()
     if text and text.startswith("http"):
         processing_msg = await message.answer("⏳ جاري فحص الرابط واستخراج الهدف...")
         
         if text in LINK_DATABASE:
             clean_url = LINK_DATABASE[text]
-            result_text = (
-                f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
-                f"🔗 {clean_url}\n\n"
-                f"🔔 اضغط على زر النسخ أدناه:"
-            )
+            result_text = f"🎉 **تم استخراج الرابط بنجاح!**\n\n🔗 {clean_url}\n\n🔔 اضغط على زر النسخ أدناه:"
             await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
             return
 
@@ -336,21 +421,31 @@ async def handle_messages(message: Message):
             clean_url = re.sub(r'\s+', '', clean_url)
 
             if clean_url == text:
-                result_text = (
-                    f"🔗 {text}\n\n"
-                    f"💡 لمعالجة هذا الرابط، يرجى التواصل مع الدعم الفني:"
-                )
+                result_text = f"🔗 {text}\n\n💡 لمعالجة هذا الرابط، يرجى التواصل مع الدعم الفني:"
                 await processing_msg.edit_text(result_text, reply_markup=get_unknown_link_keyboard(text))
             else:
-                result_text = (
-                    f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
-                    f"🔗 {clean_url}\n\n"
-                    f"🔔 اضغط على زر النسخ أدناه:"
-                )
+                result_text = f"🎉 **تم استخراج الرابط بنجاح!**\n\n🔗 {clean_url}\n\n🔔 اضغط على زر النسخ أدناه:"
                 await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
                 
         except Exception as e:
             await processing_msg.edit_text(f"❌ حدث خطأ أثناء المعالجة:\n`{str(e)}`")
+
+# معالجة أنواع الأزرار الرئيسية المختارة
+@dp.callback_query(F.data.startswith("btype_"))
+async def process_button_type(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    parts = callback.data.split("_", 2)
+    b_type = parts[1] # link أو menu
+    btn_name = parts[2]
+    
+    if b_type == "link":
+        ADMIN_STATE[callback.from_user.id] = f"waiting_btn_url_{btn_name}"
+        await callback.message.edit_text(f"🔗 الآن أرسل **الرابط** الذي سيفعته الزر `[{btn_name}]` عند الضغط عليه:")
+    else:
+        CUSTOM_BUTTONS[btn_name] = {"type": "menu", "content": ""}
+        await callback.message.edit_text(f"✅ **تم إنشاء الزر الرئيسي كقائمة فرعية بنجاح!**\n\nيمكنك الآن الدخول إلى قسم 'إضافة زر بداخل زر' لوضع أزرار بداخله.", reply_markup=get_admin_menu())
+    await callback.answer()
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
