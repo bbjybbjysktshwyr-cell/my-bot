@@ -1,4 +1,3 @@
-
 import os
 import re
 import html
@@ -8,7 +7,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
+TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
 
 # الآيدي الخاص بك كمدير للبوت
 ADMIN_ID = 6697426766
@@ -226,7 +225,7 @@ async def handle_messages(message: Message):
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 البوت يعمل الآن بكفاءة عالية وبدون تعليق...")
+    print("🤖 البوت يعمل الآن بكفاءة عالية وبدون إعلانات...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
