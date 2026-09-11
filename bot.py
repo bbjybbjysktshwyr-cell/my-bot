@@ -1,6 +1,7 @@
 import os
 import re
 import html
+import json
 import cloudscraper
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -27,14 +28,14 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.reply(
-        "مرحباً بك في بوت تجاوز الروابط الذكي!\n\nأرسل لي أي رابط وسأقوم باستخراج الرابط الأصلي بدقة:",
+        "مرحباً بك في بوت تجاوز الروابط المحلي!\n\nأرسل لي أي رابط وسأقوم باستخراج الوجهة المخفية:",
         reply_markup=get_main_menu()
     )
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لتجاوز روابط الحماية واستخراج الرابط النهائي.",
+        "هذا البوت مخصص لتجاوز الروابط واستخراج الوجهة النهائية محلياً.",
         reply_markup=get_main_menu()
     )
 
@@ -50,12 +51,12 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري سحب الرابط النهائي الحقيقي...")
+        processing_msg = await message.reply("⏳ جاري فحص الرابط محلياً...")
         
         extracted_url = text
         
         try:
-            # استخدام جلسة cloudscraper متقدمة مع محاكاة كاملة للمتصفح
+            # تهيئة كلوود سكريبر مع محاكاة متصفح أندرويد حقيقي
             scraper = cloudscraper.create_scraper(
                 browser={
                     'browser': 'chrome',
@@ -68,42 +69,51 @@ async def handle_links(message: Message):
                 "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
-                "Referer": text
+                "Referer": text,
+                "X-Requested-With": "XMLHttpRequest" # غالباً المواقع تستخدم هذا الهيدر لطلبات الـ AJAX
             }
             
-            # الطلب الأول لصفحة البوستي
+            # جلب الصفحة الأساسية
             response = scraper.get(text, headers=headers, allow_redirects=True, timeout=25)
             html_content = response.text
             
-            # البحث عن أي روابط توجيه نهائية مخفية ضمن الأكواد أو الـ JavaScript أو الأطر
-            # 1. البحث عن روابط link-center أو bstshrt أو أي روابط وجهة صريحة
-            found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
-            ignored_domains = ['boostylink.com', 'google.com', 'cloudflare.com', 'w3.org', 'maxcdn', 'jsdelivr', 'jquery', 'bootstrap', 'googletagmanager', 'analytics']
+            # محاولة البحث عن أي روابط مخفية داخل كود الـ JSON أو متغيرات الـ Script داخل الصفحة
+            # في كثير من الأحيان تكون الروابط مخفية بصيغة JSON ضمن سكربتات الصفحة
+            json_match = re.search(r'(\{.*?"url"\s*:\s*"https?://[^"]+".*?\})', html_content)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group(1))
+                    if "url" in data:
+                        extracted_url = data["url"]
+                except:
+                    pass
             
-            target_candidate = None
-            for link in found_links:
-                clean_l = link.rstrip('\\"\'.,;')
-                if not any(domain in clean_l.lower() for domain in ignored_domains) and clean_l != text:
-                    if any(domain in clean_l.lower() for domain in ['link-center', 'bstshrt', 'linkvertise', 'ouo.io', 'adf.ly', 'go.', 'to/']):
-                        target_candidate = clean_l
-                        break
-            
-            if target_candidate:
-                extracted_url = target_candidate
-            elif response.url != text and 'boostylink.com' not in response.url:
-                extracted_url = response.url
-            else:
-                # إذا كانت الصفحة محمية بالكامل بسكربت خارجي، نبحث عن روابط إعادة التوجيه بداخل الـ Meta tags أو الـ window.location
-                meta_match = re.search(r'(?:window\.location\.href|url|href)\s*=\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
-                if meta_match:
-                    extracted_url = meta_match.group(1)
+            # إذا لم يتم العثور عليها عبر الـ JSON، نبحث عن الروابط النصية الصريحة مع استبعاد الروابط الوهمية
+            if extracted_url == text:
+                found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
+                ignored_domains = [
+                    'boostylink.com', 'google.com', 'cloudflare.com', 'w3.org', 
+                    'maxcdn', 'jsdelivr', 'jquery', 'bootstrap', 'googletagmanager', 
+                    'analytics', '#', 'javascript'
+                ]
+                
+                for link in found_links:
+                    clean_l = link.rstrip('\\"\'.,;')
+                    if not any(domain in clean_l.lower() for domain in ignored_domains) and clean_l != text:
+                        if not clean_l.startswith('#'):
+                            extracted_url = clean_l
+                            break
 
-            # تنظيف الرابط النهائي وجعله بسطر واحد نظيف تماماً
+            # إذا استمر الرابط كما هو ولم يتغير، نتحقق من الـ Redirect النهائي للسيرفر
+            if extracted_url == text and response.url != text and 'boostylink.com' not in response.url:
+                extracted_url = response.url
+
+            # تنظيف الرابط النهائي تماماً من أي مسافات أو رموز زائدة
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
             result_text = (
-                f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
+                f"🎉 **تم الاستخراج بنجاح!**\n\n"
                 f"🔗 {clean_url}\n\n"
                 f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
             )
@@ -111,7 +121,7 @@ async def handle_links(message: Message):
             await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
             
         except Exception as e:
-            await processing_msg.edit_text(f"❌ حدث خطأ:\n`{str(e)}`")
+            await processing_msg.edit_text(f"❌ حدث خطأ محلي:\n`{str(e)}`")
     else:
         await message.reply("يرجى إرسال رابط صالح يبدأ بـ http أو https.")
 
