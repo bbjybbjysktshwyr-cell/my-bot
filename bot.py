@@ -1,12 +1,13 @@
 import os
 import re
 import html
-import asyncio
+import json
+import cloudscraper
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
-from playwright.async_api import async_playwright
 
+# توكن البوت
 TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
 bot = Bot(token=TOKEN)
@@ -27,14 +28,14 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.reply(
-        "مرحباً بك في بوت تجاوز الروابط الذكي!\n\nأرسل لي رابط Boostylink وسأقوم بتخطي المهام واستخراج الرابط النهائي:",
+        "مرحباً بك في بوت تجاوز الروابط المحلي!\n\nأرسل لي أي رابط وسأقوم باستخراج الوجهة النهائية بدقة:",
         reply_markup=get_main_menu()
     )
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لتجاوز روابط المهام وإلغاء القفل تلقائياً.",
+        "هذا البوت مخصص لتجاوز الروابط واستخراج الوجهة النهائية محلياً.",
         reply_markup=get_main_menu()
     )
 
@@ -50,82 +51,143 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري محاكاة المهام وتخطي قفل الأزرار...")
+        processing_msg = await message.reply("⏳ جاري بدء التتبع وتحليل الروابط خطوة بخطوة...")
         
         extracted_url = text
+        steps_log = [f"الرابط الأصلي: {text}"]
         
         try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                    viewport={"width": 1280, "height": 720}
-                )
-                page = await context.new_page()
-                
-                # التقاط طلبات الشبكة (Network Requests) لأن السيرفر أحياناً يكشف الرابط عبر الـ API عند الفتح
-                captured_urls = []
-                page.on("request", lambda req: captured_urls.append(req.url))
-                
-                await page.goto(text, timeout=45000)
-                await page.wait_for_load_timeout(4000)
-                
-                # محاولة الضغط البرمجي على الأزرار الوهمية أو محاكاة فتحها لتفعيل شريط التقدم
-                for _ in range(3):
-                    try:
-                        # البحث عن أزرار الاشتراك أو المشاهدة والنقر عليها لفتحها وإغلاقها تلقائياً
-                        buttons = await page.query_selector_all("a.btn, button, .red, [id*='btn']")
-                        for btn in buttons:
-                            try:
-                                await btn.click(timeout=1000)
-                                await page.wait_for_timeout(1000)
-                            except:
-                                pass
-                    except:
-                        pass
-                
-                # الانتظار حتى يصبح الزر الأخضر (Unlock link) متاحاً والنقر عليه
+            scraper = cloudscraper.create_scraper(
+                browser={
+                    'browser': 'chrome',
+                    'platform': 'android',
+                    'desktop': False
+                }
+            )
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
+                "Referer": text,
+                "X-Requested-With": "XMLHttpRequest"
+            }
+            
+            response = scraper.get(text, headers=headers, allow_redirects=True, timeout=25)
+            html_content = response.text
+            
+            path_parts = text.rstrip('/').split('/')
+            slug = path_parts[-1] if path_parts else ""
+            
+            if slug and len(slug) > 2:
+                api_target_url = f"https://boostylink.com/api/links/{slug}"
                 try:
-                    await page.wait_for_selector("text=Unlock link", timeout=10000)
-                    # النقر على الزر الأخضر لإظهار الرابط النهائي
-                    await page.click("text=Unlock link", timeout=3000)
-                    await page.wait_for_timeout(4000)
+                    api_resp = scraper.get(api_target_url, headers=headers, timeout=10)
+                    if api_resp.status_code == 200:
+                        api_data = api_resp.json()
+                        if "destination" in api_data:
+                            extracted_url = api_data["destination"]
+                            steps_log.append(f"من API: {extracted_url}")
+                        elif "url" in api_data:
+                            extracted_url = api_data["url"]
+                            steps_log.append(f"من API (url): {extracted_url}")
                 except:
                     pass
-                
-                # فحص الروابط المسجلة في الشبكة أو الرابط الحالي للمتصفح
-                current_url = page.url
-                if not any(d in current_url for d in ["boostylink.com", "rm358.com", "rtmark.net"]):
-                    extracted_url = current_url
-                else:
-                    # البحث في الطلبات المسجلة عن رابط حقيقي خارج المنصة
-                    found_target = False
-                    for u in reversed(captured_urls):
-                        if not any(d in u for d in ["boostylink.com", "rm358.com", "rtmark.net", "google", "cloudflare", "static"]):
-                            if u.startswith("http"):
-                                extracted_url = u
-                                found_target = True
+
+            if extracted_url == text:
+                json_matches = re.findall(r'(\{.*?"(?:destination|target_url|link|redirect_url)"\s*:\s*"https?://[^"]+".*?\})', html_content)
+                for j_m in json_matches:
+                    try:
+                        data = json.loads(j_m)
+                        for key in ["destination", "target_url", "link", "redirect_url"]:
+                            if key in data and "boostylink.com" not in data[key]:
+                                extracted_url = data[key]
+                                steps_log.append(f"من JSON الداخلي: {extracted_url}")
                                 break
-                    if not found_target:
-                        extracted_url = page.url
+                    except:
+                        continue
+
+            if extracted_url == text:
+                found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
+                ignored_domains = [
+                    'boostylink.com', 'google.com', 'cloudflare.com', 'w3.org', 
+                    'youtube.com', 'youtu.be', 'discord.gg', 'discord.com', 't.me',
+                    'maxcdn', 'jsdelivr', 'jquery', 'bootstrap', 'googletagmanager', 
+                    'analytics', '#', 'javascript'
+                ]
                 
-                await browser.close()
-                
+                for link in found_links:
+                    clean_l = link.rstrip('\\"\'.,;')
+                    if not any(domain in clean_l.lower() for domain in ignored_domains) and clean_l != text:
+                        if not clean_l.startswith('#') and ('/' in clean_l.replace('https://', '').replace('http://', '')):
+                            extracted_url = clean_l
+                            steps_log.append(f"من محتوى الصفحة: {extracted_url}")
+                            break
+
+            if extracted_url == text and response.url != text and 'boostylink.com' not in response.url:
+                extracted_url = response.url
+                steps_log.append(f"من إعادة التوجيه السريع: {extracted_url}")
+
+            # تتبع عميق لـ rm358 والروابط الوسيطة مع فحص الـ Meta Refresh والـ Script Forms
+            redirect_count = 0
+            while any(domain in extracted_url for domain in ["rm358.com", "rtmark.net"]) and redirect_count < 5:
+                try:
+                    redirect_count += 1
+                    sub_resp = scraper.get(extracted_url, headers=headers, allow_redirects=True, timeout=15)
+                    sub_html = sub_resp.text
+                    
+                    # البحث عن الـ Meta Refresh
+                    meta_match = re.search(r'<meta[^>]*http-equiv=["\']refresh["\'][^>]*content=["\'][^;]+;\s*url=([^\s"\']+)["\']', sub_html, re.IGNORECASE)
+                    if meta_match:
+                        extracted_url = meta_match.group(1)
+                        steps_log.append(f"تتبع (Meta Refresh): {extracted_url}")
+                        continue
+
+                    # البحث عن نافذة التوجيه أو المتغيرات
+                    loc_match = re.search(r'(?:window\.)?location(?:\.href)?\s*=\s*["\'](https?://[^"\']+)["\']', sub_html, re.IGNORECASE)
+                    if loc_match:
+                        extracted_url = loc_match.group(1)
+                        steps_log.append(f"تتبع (JS Location): {extracted_url}")
+                        continue
+                        
+                    # البحث عن روابط داخل النص تتجاوز الدومينات الوسيطة
+                    all_sub_links = re.findall(r'https?://[^\s<>"\']+', sub_html)
+                    found_next = False
+                    for sl in all_sub_links:
+                        clean_sl = sl.rstrip('\\"\'.,;')
+                        if not any(d in clean_sl.lower() for d in ['rm358.com', 'rtmark.net', 'boostylink.com', 'google.com', 'w3.org', 'cloudflare', 'img.gif']):
+                            extracted_url = clean_sl
+                            steps_log.append(f"تتبع (رابط فرعي): {extracted_url}")
+                            found_next = True
+                            break
+                    if not found_next:
+                        if sub_resp.url != extracted_url:
+                            extracted_url = sub_resp.url
+                            steps_log.append(f"تتبع (استجابة نهائية): {extracted_url}")
+                        else:
+                            break
+                except:
+                    break
+
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
+            # طباعة خطوات التتبع مع الرابط النهائي لتكتشف أي خطوة تقف عندها
+            logs_str = "\n".join([f"🔹 {step}" for step in steps_log])
             result_text = (
-                f"🎉 **تم تجاوز المهام واستخراج الرابط النهائي!**\n\n"
-                f"🔗 {clean_url}\n\n"
+                f"🎉 **خطوات التتبع والنتيجة:**\n\n"
+                f"{logs_str}\n\n"
+                f"🔗 **الرابط النهائي المستخرج:**\n{clean_url}\n\n"
                 f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
             )
             
             await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
             
         except Exception as e:
-            await processing_msg.edit_text(f"❌ حدث خطأ أثناء التجاوز:\n`{str(e)}`")
+            await processing_msg.edit_text(f"❌ حدث خطأ أثناء التتبع:\n`{str(e)}`")
     else:
         await message.reply("يرجى إرسال رابط صالح يبدأ بـ http أو https.")
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(dp.start_polling(bot))
