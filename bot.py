@@ -1,16 +1,18 @@
 import os
 import re
+import html
 import cloudscraper
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
 # توكن البوت الخاص بك
-TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
+TOKEN = "8815004150:AAEO-paQOWRnQ88w_tSKHyG71TA37ndF1xg"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+# إنشاء سكربت تجاوز الكلاود فلير
 scraper = cloudscraper.create_scraper()
 
 def get_main_menu():
@@ -31,7 +33,7 @@ def get_copy_keyboard(target_url):
 async def send_welcome(message: Message):
     welcome_text = (
         "مرحباً بك في بوت تجاوز الروابط الذكي!\n\n"
-        "أرسل لي أي رابط وسأقوم باستخراج الرابط الأصلي المخفي بدقة:"
+        "أرسل لي أي رابط وسأقوم باستخراج الرابط الأصلي بدقة:"
     )
     await message.reply(welcome_text, reply_markup=get_main_menu())
 
@@ -59,49 +61,54 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تحليل وفحص الروابط المخفية...")
+        processing_msg = await message.reply("⏳ جاري تجاوز الرابط واستخراج الوجهة النهائية...")
         
         try:
-            response = scraper.get(text, timeout=20, allow_redirects=True)
+            # إرسال الطلب مع السماح بتتبع كافة عمليات التحويل (Redirects)
+            response = scraper.get(text, timeout=25, allow_redirects=True)
             html_content = response.text
+            final_url = response.url
             
             extracted_url = None
             
-            # البحث عن الروابط المخفية داخل متغيرات جافاسكريبت أو بيانات الـ JSON في الصفحة (مثل target_url أو final_url أو destination)
-            script_matches = re.findall(r'["\'](?:target|destination|finalUrl|redirect_url|link)["\']\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
+            # البحث عن أوامر التوجيه داخل السكربتات (مثل window.location.href أو window.location.replace)
+            location_match = re.search(r'window\.location(?:\.href|\.replace)?\s*=\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
+            if location_match:
+                extracted_url = location_match.group(1)
             
-            if script_matches:
-                # تصفية الروابط المستخرجة لتجنب روابط الموقع نفسه
-                valid_links = [l for l in script_matches if 'boostylink.com' not in l]
-                if valid_links:
-                    extracted_url = valid_links[0]
+            # إذا لم يوجد، نبحث عن متغيرات التوجيه المعتادة
+            if not extracted_url:
+                target_match = re.search(r'["\'](?:target|destination|finalUrl|redirect_url|link|url|to)["\']\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
+                if target_match:
+                    extracted_url = target_match.group(1)
             
-            # إذا لم نجدها في المتغيرات، نبحث عن أحدث رابط تم إضافته في السكربتات والذي لا ينتمي للأزرار الظاهرة
+            # إذا لم يتم العثور على رابط صريح داخل السكربتات، نبحث عن الروابط الخارجية ضمن محتوى الصفحة
             if not extracted_url:
                 all_urls = re.findall(r'https?://[^\s<>"\']+', html_content)
-                # استبعاد روابط الأزرار المعروفة (مثل اليوتيوب الخاص بالمهام أو الديسكورد الأساسي) والرابط الأصلي
-                ignored = ['boostylink.com', 'googletagmanager.com', 'discord.gg', 'youtube.com/@', 'youtu.be/@']
+                ignored = ['boostylink.com', 'googletagmanager.com', 'discord.gg', 'youtube.com', 'youtu.be', 'facebook', 'twitter', 'instagram']
                 
                 filtered = []
                 for u in all_urls:
-                    if text not in u and not any(ig in u for ig in ignored) and not u.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg')):
+                    if text not in u and not any(ig in u for ig in ignored) and not u.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg', '.json')):
                         filtered.append(u)
                 
                 if filtered:
-                    # غالباً الرابط المستهدف يكون آخر رابط أو رابط مختلف تماماً عن قنوات الأزرار
                     extracted_url = filtered[-1]
             
-            # إذا بقي الحال كما هو، نستخدم رابط التوجيه النهائي
+            # كحل أخير إذا تطابق الرابط، نعتمد الرابط النهائي بعد الـ Redirect
             if not extracted_url or extracted_url == text:
-                extracted_url = response.url
+                extracted_url = final_url
+
+            # تنظيف الرابط النهائي من أي رموز مشفرة
+            clean_url = html.unescape(extracted_url)
 
             result_text = (
-                f"🎉 **تم استخراج الرابط النهائي بنجاح!**\n\n"
-                f"🔗 `{extracted_url}`\n\n"
+                f"🎉 **تم تجاوز الرابط بنجاح!**\n\n"
+                f"🔗 `{clean_url}`\n\n"
                 f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
             )
             
-            await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(extracted_url))
+            await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
             
         except Exception as e:
             await processing_msg.edit_text(f"❌ حدث خطأ أثناء تجاوز الرابط:\n`{str(e)}`")
