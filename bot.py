@@ -51,7 +51,7 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تحليل الرابط وتجاوز المهام...")
+        processing_msg = await message.reply("⏳ جاري تتبع الروابط للوصول للوجهة النهائية...")
         
         extracted_url = text
         
@@ -72,16 +72,16 @@ async def handle_links(message: Message):
                 "X-Requested-With": "XMLHttpRequest"
             }
             
+            # خطوة 1: طلب رابط البوستي الأساسي
             response = scraper.get(text, headers=headers, allow_redirects=True, timeout=25)
             html_content = response.text
             
-            # استخراج المعرف الفريد من الرابط (Token/ID)
+            # استخراج المعرف الفريد
             path_parts = text.rstrip('/').split('/')
             slug = path_parts[-1] if path_parts else ""
             
-            # محاكاة طلب الـ API الخلفي الخاص بالموقع لجلب الرابط النهائي المخفي خلف زر Unlock
             if slug and len(slug) > 2:
-                api_target_url = f"https://boostylink.com/api/links/{slug}" # محاولة فحص الـ endpoint الداخلي
+                api_target_url = f"https://boostylink.com/api/links/{slug}"
                 try:
                     api_resp = scraper.get(api_target_url, headers=headers, timeout=10)
                     if api_resp.status_code == 200:
@@ -93,7 +93,6 @@ async def handle_links(message: Message):
                 except:
                     pass
 
-            # فحص إضافي عبر تحليل الـ JavaScript المتغير أو الـ JSON المتقدم في الصفحة إذا فشل الـ API المباشر
             if extracted_url == text:
                 json_matches = re.findall(r'(\{.*?"(?:destination|target_url|link|redirect_url)"\s*:\s*"https?://[^"]+".*?\})', html_content)
                 for j_m in json_matches:
@@ -106,7 +105,6 @@ async def handle_links(message: Message):
                     except:
                         continue
 
-            # إذا استمر الرابط بدون تغيير، نقوم بفلترة جميع الروابط واستبعاد قنوات المهام (يوتيوب وديسكورد)
             if extracted_url == text:
                 found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
                 ignored_domains = [
@@ -118,21 +116,34 @@ async def handle_links(message: Message):
                 
                 for link in found_links:
                     clean_l = link.rstrip('\\"\'.,;')
-                    # التأكد من عدم كون الرابط تابعاً لوسائل التواصل الخاصة بالمهام
                     if not any(domain in clean_l.lower() for domain in ignored_domains) and clean_l != text:
                         if not clean_l.startswith('#') and ('/' in clean_l.replace('https://', '').replace('http://', '')):
                             extracted_url = clean_l
                             break
 
-            # التحقق النهائي من الـ Redirect
             if extracted_url == text and response.url != text and 'boostylink.com' not in response.url:
                 extracted_url = response.url
+
+            # خطوة 2: إذا كان الرابط المستخرج عبارة عن موقع تتبع مثل rm358 أو مشابه، نقوم بمتابعة طلبه للوصول للوجهة التي بعده
+            if extracted_url and extracted_url != text:
+                try:
+                    sub_response = scraper.get(extracted_url, headers=headers, allow_redirects=True, timeout=15)
+                    if sub_response.url != extracted_url:
+                        extracted_url = sub_response.url
+                    else:
+                        # البحث داخل صفحة التتبّع عن رابط الوجهة الفعلية إذا لم تقم بإعادة توجيه تلقائية
+                        sub_html = sub_response.text
+                        meta_refresh = re.search(r'content=["\'][0-9];\s*url=(https?://[^"\']+)["\']', sub_html, re.IGNORECASE)
+                        if meta_refresh:
+                            extracted_url = meta_refresh.group(1)
+                except:
+                    pass
 
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
             result_text = (
-                f"🎉 **تم استخراج الرابط الحقيقي بنجاح!**\n\n"
+                f"🎉 **تم استخراج الرابط النهائي بنجاح!**\n\n"
                 f"🔗 {clean_url}\n\n"
                 f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
             )
