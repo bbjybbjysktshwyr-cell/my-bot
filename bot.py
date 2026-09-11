@@ -27,14 +27,14 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.reply(
-        "مرحباً بك! أرسل لي رابط الاختصار وسأقوم بتجاوز روابط ديسكورد والمهام لإيجاد الرابط النهائي:",
+        "مرحباً بك! أرسل رابط الاختصار وسأقوم باستخراج الرابط المخفي:",
         reply_markup=get_main_menu()
     )
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لاستخراج الروابط الأصلية وتصفية روابط الديسكورد والمهام.",
+        "هذا البوت مخصص لاستخراج الروابط المخفية خلف منصات الاختصار.",
         reply_markup=get_main_menu()
     )
 
@@ -50,7 +50,7 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تحليل الصفحة وتجاوز مهام ديسكورد ويوتيوب...")
+        processing_msg = await message.reply("⏳ جاري استخراج الرابط المخفي من أكواد الصفحة...")
         
         extracted_url = text
         
@@ -73,6 +73,7 @@ async def handle_links(message: Message):
             response = scraper.get(text, headers=headers, allow_redirects=True, timeout=20)
             html_content = response.text
             
+            # 1. البحث عبر الـ API الرسمي للموقع استناداً إلى الـ Slug
             path_parts = text.rstrip('/').split('/')
             slug = path_parts[-1] if path_parts else ""
             if slug and len(slug) > 2:
@@ -80,15 +81,24 @@ async def handle_links(message: Message):
                     api_resp = scraper.get(f"https://boostylink.com/api/links/{slug}", headers=headers, timeout=8)
                     if api_resp.status_code == 200:
                         api_data = api_resp.json()
-                        for key in ["destination", "target_url", "url", "link", "target"]:
+                        for key in ["destination", "target_url", "url", "link", "target", "final_url"]:
                             if key in api_data and api_data[key]:
                                 val = api_data[key]
-                                if not any(d in val for d in ["boostylink.com", "rm358.com", "youtube.com", "youtu.be", "t.me", "discord.gg", "discord.com"]):
+                                if not any(d in val for d in ["boostylink.com", "rm358.com", "youtube.com", "discord.gg"]):
                                     extracted_url = val
                                     break
                 except:
                     pass
 
+            # 2. البحث العميق داخل متغيرات السكربتات المضمنة في HTML (مثل var link = "...")
+            if extracted_url == text:
+                js_var_matches = re.findall(r'(?:destination|target|url|link|goUrl|hopUrl)\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
+                for match in js_var_matches:
+                    if not any(d in match for d in ["boostylink.com", "rm358.com", "youtube.com", "discord.gg", "google"]):
+                        extracted_url = match
+                        break
+
+            # 3. الفحص الشامل للروابط مع تجاهل تامة لشبكات التواصل الاجتماعي والاعلانات
             if extracted_url == text:
                 found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
                 ignored_keywords = [
@@ -107,11 +117,11 @@ async def handle_links(message: Message):
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
-            if clean_url == text or any(d in clean_url for d in ["boostylink.com", "rm358.com", "youtube.com", "discord.gg", "discord.com"]):
-                await processing_msg.edit_text("⚠️ الرابط محمي بمهام متعددة (مثل ديسكورد) ولا يمكن استخراج وجهته النهائية إلا بإتمام المهام يدوياً.")
+            if clean_url == text or any(d in clean_url for d in ["boostylink.com", "rm358.com", "youtube.com", "discord.gg"]):
+                await processing_msg.edit_text("⚠️ عذراً، الرابط مشفر بالكامل ولا يمكن فكه إلا بفتح الصفحة يدوياً وإتمام المهام.")
             else:
                 result_text = (
-                    f"🎉 **تم استخراج الرابط الأصلي الحقيقي بنجاح!**\n\n"
+                    f"🎉 **تم استخراج الرابط الحقيقي بنجاح!**\n\n"
                     f"🔗 {clean_url}\n\n"
                     f"🔔 اضغط على زر النسخ أدناه:"
                 )
