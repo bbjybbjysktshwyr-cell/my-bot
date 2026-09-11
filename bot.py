@@ -27,14 +27,14 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.reply(
-        "مرحباً بك! أرسل رابط الاختصار وسأقوم بتصفية روابط المهام وإحضار الرابط الحقيقي فقط:",
+        "مرحباً بك! أرسل رابط الاختصار وسأقوم بتصفية الروابط وإحضار الهدف النهائي:",
         reply_markup=get_main_menu()
     )
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لاستخراج الروابط الأصلية وتجاهل مهام التواصل الاجتماعي.",
+        "هذا البوت مخصص لاستخراج الروابط الأصلية بدقة وتجاوز المهام.",
         reply_markup=get_main_menu()
     )
 
@@ -50,7 +50,7 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري سحب الرابط الحقيقي وتجاوز إعلانات المهام...")
+        processing_msg = await message.reply("⏳ جاري تحليل الرابط وتصفية النتائج...")
         
         extracted_url = text
         
@@ -73,16 +73,17 @@ async def handle_links(message: Message):
             response = scraper.get(text, headers=headers, allow_redirects=True, timeout=20)
             html_content = response.text
             
-            # قائمة المنصات والكلمات المستبعدة حصرياً (كل ما يخص المهام)
+            # --- [التحديث المضاف فوق الأساسيات: قائمة حظر شاملة لكل المهام والملفات والوسائط] ---
             excluded_domains = [
                 'boostylink.com', 'rm358.com', 'rtmark.net', 
                 'youtube.com', 'youtu.be', 't.me', 'telegram.me',
                 'discord.gg', 'discord.com', 'instagram.com', 'facebook.com',
                 'google.com', 'googletagmanager.com', 'cloudflare.com', 'w3.org',
-                'jsdelivr', 'jquery', 'bootstrap', 'html5shiv'
+                'jsdelivr', 'jquery', 'bootstrap', 'html5shiv', 'maxcdn.com', 'oss.maxcdn.com'
             ]
+            forbidden_extensions = ('.js', '.css', '.png', '.jpg', '.jpeg', '.ico', '.json', '.xml', '.svg', '.woff', '.ttf')
             
-            # 1. فحص الـ API الرسمي للموقع للبحث عن الرابط الحقيقي
+            # 1. فحص الـ API الرسمي للمنصة
             path_parts = text.rstrip('/').split('/')
             slug = path_parts[-1] if path_parts else ""
             if slug and len(slug) > 2:
@@ -93,34 +94,35 @@ async def handle_links(message: Message):
                         for key in ["destination", "target_url", "url", "link", "target", "final_url"]:
                             if key in api_data and api_data[key]:
                                 val = str(api_data[key])
-                                if not any(d in val.lower() for d in excluded_domains):
+                                if not any(d in val.lower() for d in excluded_domains) and not val.lower().endswith(forbidden_extensions):
                                     extracted_url = val
                                     break
                 except:
                     pass
 
-            # 2. البحث بعمق داخل المتغيرات البرمجية للسكربتات إذا لم يظهر في الـ API
+            # 2. البحث داخل متغيرات السكربتات البرمجية المخفية
             if extracted_url == text:
                 js_var_matches = re.findall(r'(?:destination|target|url|link|goUrl|hopUrl|redirect)\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
                 for match in js_var_matches:
-                    if not any(d in match.lower() for d in excluded_domains):
+                    if not any(d in match.lower() for d in excluded_domains) and not match.lower().endswith(forbidden_extensions):
                         extracted_url = match
                         break
 
-            # 3. فحص جميع روابط الصفحة وتجاهل أي شيء يخص السوشيال ميديا تماماً
+            # 3. الفحص العام وتصفية أي رابط لا يطابق شروط الحظر
             if extracted_url == text:
                 found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
                 for link in found_links:
                     clean_l = link.rstrip('\\"\'.,;')
-                    if not any(d in clean_l.lower() for d in excluded_domains) and clean_l != text:
+                    if clean_l != text and not any(d in clean_l.lower() for d in excluded_domains) and not clean_l.lower().endswith(forbidden_extensions):
                         extracted_url = clean_l
                         break
 
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
-            if clean_url == text or any(d in clean_url.lower() for d in excluded_domains):
-                await processing_msg.edit_text("⚠️ عذراً، الرابط الخلفي مشفر داخل الأزرار ويتطلب تفاعلاً بشرياً كاملاً.")
+            # --- [التحقق النهائي من النتائج] ---
+            if clean_url == text or any(d in clean_url.lower() for d in excluded_domains) or clean_url.lower().endswith(forbidden_extensions):
+                await processing_msg.edit_text("⚠️ الرابط محمي بمهام تفاعلية ولا يمكن استخلاص وجهته النهائية إلا بالفتح اليدوي.")
             else:
                 result_text = (
                     f"🎉 **تم استخراج الرابط الحقيقي بنجاح!**\n\n"
