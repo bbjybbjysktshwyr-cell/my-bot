@@ -51,47 +51,25 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري فحص الرابط واستخراج الوجهة المخفية...")
+        processing_msg = await message.reply("⏳ جاري تجاوز حماية الرابط واستخراج الوجهة...")
         
         extracted_url = None
         
         try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Referer": text
-            }
-            
-            response = scraper.get(text, headers=headers, allow_redirects=True, timeout=25)
-            html_content = response.text
-            
-            # 1. البحث المباشر عن روابط التوجيه المعروفة
-            match = re.search(r'https?://(?:link-center|linkvertise)\.net/[^\s<>"\']+', html_content, re.IGNORECASE)
-            if match:
-                extracted_url = match.group(0)
-            else:
-                # 2. فحص شامل مع فلترة صارمة جداً لاستبعاد ملفات الـ CDN والسكربتات والإعلانات
-                found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
-                ignored_keywords = [
-                    'boostylink.com', 'google.com', 'cloudflare.com', 'w3.org', 
-                    'maxcdn', 'jsdelivr', 'cloudflare', 'jquery', 'bootstrap', 
-                    'googletagmanager', 'analytics', '.js', '.css', '.png', '.jpg', '.ico'
-                ]
+            # إذا كان الرابط يتبع لـ boostylink، نقوم باستخراج المعرف الفريد (ID) وتوليد الرابط الموجه
+            if "boostylink.com" in text:
+                # استخراج آخر جزء من الرابط (المعرف)
+                path_parts = text.rstrip('/').split('/')
+                token_id = path_parts[-1] if path_parts else ""
                 
-                for link in found_links:
-                    clean_l = link.rstrip('\\"\'.,;')
-                    # التأكد من أن الرابط لا يحتوي على أي كلمة من القائمة السوداء ولا ينتهي بملف برمجي
-                    if not any(word in clean_l.lower() for word in ignored_keywords) and clean_l != text:
-                        if 'link-center' in clean_l or 'linkvertise' in clean_l or 'download' in clean_l or 'to/' in clean_l:
-                            extracted_url = clean_l
-                            break
-            
-            # إذا لم يتم العثور على رابط صالح، نتحقق من الـ Redirect النهائي للسيرفر
-            if not extracted_url or extracted_url == text:
-                if response.url != text and 'boostylink.com' not in response.url:
-                    extracted_url = response.url
+                if token_id and len(token_id) > 2:
+                    # تركيب الرابط النهائي المباشر بناءً على معرف البوستي
+                    extracted_url = f"https://link-center.net/2603650/{token_id}"
                 else:
                     extracted_url = text
+            else:
+                response = scraper.get(text, allow_redirects=True, timeout=20)
+                extracted_url = response.url if response.url != text else text
 
             # تنظيف الرابط النهائي وجعله بسطر واحد نظيف تماماً
             clean_url = html.unescape(extracted_url).strip()
