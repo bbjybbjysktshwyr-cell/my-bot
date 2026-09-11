@@ -27,14 +27,14 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.answer(
-        "مرحباً بك! أرسل رابط الاختصار وسأقوم بتجاوز المهام وإحضار الرابط الحقيقي:",
+        "مرحباً بك! أرسل رابط الاختصار (مثل Boostylink أو Link-center) وسأقوم باستخراج الرابط الحقيقي:",
         reply_markup=get_main_menu()
     )
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: Message):
     await callback.message.edit_text(
-        "هذا البوت مخصص لاستخراج الروابط الأصلية وتجاوز المهام بدقة عالية.",
+        "هذا البوت مخصص لاستخراج الروابط الأصلية وتجاوز صفحات الاختصار بدقة وسرعة.",
         reply_markup=get_main_menu()
     )
     await callback.answer()
@@ -53,20 +53,17 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.answer("⏳ جاري فحص الرابط وتتبع مسار التوجيه وتصفية المهام...")
+        processing_msg = await message.answer("⏳ جاري فحص الرابط وتتبع مسار التوجيه واستخراج الهدف...")
         
         extracted_url = text
         
-        # قائمة الحظر الشاملة لكل المهام، السوشيال ميديا، وملفات الـ CDN
         excluded_domains = [
-            'boostylink.com', 'rm358.com', 'rtmark.net', 
+            'boostylink.com', 'link-center.net', 'rm358.com', 'rtmark.net', 
             'youtube.com', 'youtu.be', 't.me', 'telegram.me',
             'discord.gg', 'discord.com', 'instagram.com', 'facebook.com',
             'google.com', 'googletagmanager.com', 'cloudflare.com', 'w3.org',
             'jsdelivr', 'jquery', 'bootstrap', 'html5shiv', 'maxcdn.com', 'oss.maxcdn.com'
         ]
-        
-        # امتدادات الملفات الممنوعة تماماً
         forbidden_extensions = ('.js', '.css', '.png', '.jpg', '.jpeg', '.ico', '.json', '.xml', '.svg', '.woff', '.ttf')
         
         try:
@@ -78,29 +75,29 @@ async def handle_links(message: Message):
                 "Referer": text
             }
             
-            # 1. فحص الـ API الرسمي للموقع
+            # محاولة فحص الـ API الخاص بـ Boostylink أو Link-center إن وجد
             path_parts = text.rstrip('/').split('/')
             slug = path_parts[-1] if path_parts else ""
             if slug and len(slug) > 2:
-                try:
-                    api_resp = scraper.get(f"https://boostylink.com/api/links/{slug}", headers=headers, timeout=6)
-                    if api_resp.status_code == 200:
-                        api_data = api_resp.json()
-                        for key in ["destination", "target_url", "url", "link", "target", "final_url"]:
-                            if key in api_data and api_data[key]:
-                                val = str(api_data[key])
-                                if not any(d in val.lower() for d in excluded_domains) and not val.lower().endswith(forbidden_extensions):
-                                    extracted_url = val
-                                    break
-                except:
-                    pass
+                for api_endpoint in [f"https://boostylink.com/api/links/{slug}", f"https://link-center.net/api/links/{slug}"]:
+                    try:
+                        api_resp = scraper.get(api_endpoint, headers=headers, timeout=5)
+                        if api_resp.status_code == 200:
+                            api_data = api_resp.json()
+                            for key in ["destination", "target_url", "url", "link", "target", "final_url"]:
+                                if key in api_data and api_data[key]:
+                                    val = str(api_data[key])
+                                    if not any(d in val.lower() for d in excluded_domains) and not val.lower().endswith(forbidden_extensions):
+                                        extracted_url = val
+                                        break
+                    except:
+                        pass
 
-            # 2. تتبع مسار التحويلات والروابط المخفية عبر الـ HTTP والـ JavaScript في حال لم يظهر عبر الـ API
+            # تتبع مسار التحويلات والروابط المخفية عبر الـ HTTP والصفحة
             if extracted_url == text:
                 response = scraper.get(text, headers=headers, allow_redirects=True, timeout=15)
                 html_content = response.text
                 
-                # تتبع سجل الـ Redirects عبر الشبكة
                 if response.history:
                     for resp in response.history:
                         loc = resp.headers.get("Location")
@@ -108,15 +105,13 @@ async def handle_links(message: Message):
                             extracted_url = loc
                             break
 
-                # البحث عن توجيهات الجافاسكريبت داخل الكود البرمجي
                 if extracted_url == text:
-                    js_redirects = re.findall(r'(?:window\.location|location\.href|href)\s*=\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
+                    js_redirects = re.findall(r'(?:window\.location|location\.href|href|destination)\s*[:=]\s*["\'](https?://[^"\']+)["\']', html_content, re.IGNORECASE)
                     for match in js_redirects:
                         if not any(d in match.lower() for d in excluded_domains) and not match.lower().endswith(forbidden_extensions):
                             extracted_url = match
                             break
 
-                # البحث العام عن الروابط وتصفيتها بدقة
                 if extracted_url == text:
                     found_links = re.findall(r'https?://[^\s<>"\']+', html_content)
                     for link in found_links:
@@ -129,7 +124,11 @@ async def handle_links(message: Message):
             clean_url = re.sub(r'\s+', '', clean_url)
 
             if clean_url == text or any(d in clean_url.lower() for d in excluded_domains) or clean_url.lower().endswith(forbidden_extensions):
-                await processing_msg.edit_text("⚠️ لم يتم العثور على رابط وجهة نهائية نظيف، قد يتطلب تفاعلاً يدوياً.")
+                await processing_msg.edit_text(
+                    "⚠️ **هذا الرابط يتطلب تخطي حماية تفاعلية**\n\n"
+                    "يمكنك فتحه مباشرة عبر الرابط أدناه:",
+                    reply_markup=get_copy_keyboard(text)
+                )
             else:
                 result_text = (
                     f"🎉 **تم استخراج الرابط الحقيقي بنجاح!**\n\n"
@@ -139,11 +138,11 @@ async def handle_links(message: Message):
                 await processing_msg.edit_text(result_text, reply_markup=get_copy_keyboard(clean_url))
                 
         except Exception as e:
-            await processing_msg.edit_text(f"❌ حدث خطأ:\n`{str(e)}`")
+            await processing_msg.edit_text(f"❌ حدث خطأ أثناء المعالجة:\n`{str(e)}`")
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 البوت يعمل الآن بكفاءة تامة...")
+    print("🤖 البوت يعمل الآن بكفاءة...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
