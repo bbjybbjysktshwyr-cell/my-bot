@@ -15,21 +15,6 @@ ADMIN_ID = 6697426766
 # يوزر تيليجرام الخاص بك للدعم الفني
 SUPPORT_USER_URL = "https://t.me/AL_shz1"
 
-# 🎛️ يمكنك تغيير أسماء الأزرار والنصوص من هنا بكل سهولة في أي وقت:
-BUTTON_TEXTS = {
-    "supported_links": "🔗 الروابط المدعومة",
-    "bypass_link": "⚡️ تجاوز رابط",
-    "about": "ℹ️ حول البوت",
-    "admin_panel": "⚙️ لوحة تحكم المدير",
-    "broadcast": "💬 إرسال إذاعة للكل",
-    "maintenance": "🛠️ تفعيل وضع الصيانة",
-    "maintenance_off": "🟢 إلغاء وضع الصيانة",
-    "back_to_menu": "🔙 رجوع للقائمة",
-    "copy_link": "📋 نسخ الرابط",
-    "support": "👨‍💻 تواصل مع الدعم الفني",
-    "cancel": "❌ إلغاء"
-}
-
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
@@ -39,9 +24,30 @@ LINK_DATABASE = {
     "https://boostylink.com/nYsaet7F": "https://bstshrt.com/u/vc691v"
 }
 
+# 🎛️ أسماء الأزرار الأساسية (قابلة للتغيير)
+BUTTON_TEXTS = {
+    "supported_links": "🔗 الروابط المدعومة",
+    "bypass_link": "⚡️ تجاوز رابط",
+    "about": "ℹ️ حول البوت",
+    "admin_panel": "⚙️ لوحة تحكم المدير",
+    "broadcast": "💬 إرسال إذاعة للكل",
+    "add_custom_btn": "➕ إضافة زر جديد للقائمة",
+    "change_names": "✏️ تغيير أسماء الأزرار",
+    "maintenance": "🛠️ تفعيل وضع الصيانة",
+    "maintenance_off": "🟢 إلغاء وضع الصيانة",
+    "back_to_menu": "🔙 رجوع للقائمة",
+    "copy_link": "📋 نسخ الرابط",
+    "support": "👨‍💻 تواصل مع الدعم الفني",
+    "cancel": "❌ إلغاء"
+}
+
+# قائمة الأزرار الإضافية التي يضيفها المدير (تخزين مؤقت)
+# الصيغة: {"اسم_الزر": "الرابط_أو_المحتوى"}
+CUSTOM_BUTTONS = {}
+
 USERS_SET = set()
 ADMIN_STATE = {}
-MAINTENANCE_MODE = False  # حالة وضع الصيانة (معطلة افتراضياً)
+MAINTENANCE_MODE = False
 
 def get_main_menu(is_admin=False):
     keyboard = [
@@ -49,6 +55,14 @@ def get_main_menu(is_admin=False):
         [InlineKeyboardButton(text=BUTTON_TEXTS["bypass_link"], callback_data="bypass_link")],
         [InlineKeyboardButton(text=BUTTON_TEXTS["about"], callback_data="about")]
     ]
+    
+    # إضافة الأزرار المخصصة التي أضافها المدير للقائمة الرئيسية
+    for btn_name, btn_url in CUSTOM_BUTTONS.items():
+        if btn_url.startswith("http"):
+            keyboard.append([InlineKeyboardButton(text=btn_name, url=btn_url)])
+        else:
+            keyboard.append([InlineKeyboardButton(text=btn_name, callback_data=f"custom_cb_{btn_name}")])
+
     if is_admin:
         keyboard.append([InlineKeyboardButton(text=BUTTON_TEXTS["admin_panel"], callback_data="admin_panel")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -57,6 +71,8 @@ def get_admin_menu():
     m_text = BUTTON_TEXTS["maintenance_off"] if MAINTENANCE_MODE else BUTTON_TEXTS["maintenance"]
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=BUTTON_TEXTS["broadcast"], callback_data="start_broadcast")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["add_custom_btn"], callback_data="start_add_btn")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["change_names"], callback_data="open_change_names")],
         [InlineKeyboardButton(text=m_text, callback_data="toggle_maintenance")],
         [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
     ])
@@ -89,10 +105,57 @@ async def admin_panel_callback(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("للمدير فقط!", show_alert=True)
         return
-    status_text = "🟢 (المصنوع حالياً: يعمل بشكل طبيعي)" if not MAINTENANCE_MODE else "🔴 (المصنوع حالياً: وضع الصيانة مفعل)"
+    status_text = "🟢 (يعمل بشكل طبيعي)" if not MAINTENANCE_MODE else "🔴 (وضع الصيانة مفعل)"
     await callback.message.edit_text(
         f"⚙️ **لوحة تحكم المدير:**\n\nحالة البوت: {status_text}\n\nتحكم في إعدادات البوت من الأزرار أدناه:",
         reply_markup=get_admin_menu()
+    )
+    await callback.answer()
+
+# بدء إضافة زر جديد
+@dp.callback_query(F.data == "start_add_btn")
+async def start_add_btn(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    ADMIN_STATE[callback.from_user.id] = "waiting_btn_name"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_panel")]
+    ])
+    await callback.message.edit_text(
+        "➕ **إضافة زر جديد للقائمة الرئيسية:**\n\nأرسل الآن **اسم الزر** الذي تريده (مثلاً: 📢 قناتنا على تيليجرام):",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "open_change_names")
+async def open_change_names(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="تغيير زر: الروابط المدعومة", callback_data="edit_supported_links")],
+        [InlineKeyboardButton(text="تغيير زر: تجاوز رابط", callback_data="edit_bypass_link")],
+        [InlineKeyboardButton(text="تغيير زر: حول البوت", callback_data="edit_about")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="admin_panel")]
+    ])
+    await callback.message.edit_text(
+        "✏️ **اختر الزر الأساسي الذي تريد تغيير اسمه:**",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("edit_"))
+async def start_editing_button(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    btn_key = callback.data.replace("edit_", "")
+    ADMIN_STATE[callback.from_user.id] = f"changing_btn_{btn_key}"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="open_change_names")]
+    ])
+    await callback.message.edit_text(
+        f"✍️ **أرسل الاسم الجديد لهذا الزر في المحادثة:**",
+        reply_markup=keyboard
     )
     await callback.answer()
 
@@ -102,10 +165,10 @@ async def toggle_maintenance_callback(callback: CallbackQuery):
         return
     global MAINTENANCE_MODE
     MAINTENANCE_MODE = not MAINTENANCE_MODE
-    state_msg = "تم تفعيل وضع الصيانة بنجاح 🔴" if MAINTENANCE_MODE else "تم إيقاف وضع الصيانة وعمل البوت بشكل طبيعي 🟢"
+    state_msg = "تم تفعيل وضع الصيانة 🔴" if MAINTENANCE_MODE else "تم إيقاف وضع الصيانة 🟢"
     await callback.answer(state_msg, show_alert=True)
     
-    status_text = "🟢 (الحالة: يعمل بشكل طبيعي)" if not MAINTENANCE_MODE else "🔴 (الحالة: وضع الصيانة مفعل)"
+    status_text = "🟢 (يعمل بشكل طبيعي)" if not MAINTENANCE_MODE else "🔴 (وضع الصيانة مفعل)"
     await callback.message.edit_text(
         f"⚙️ **لوحة تحكم المدير:**\n\nحالة البوت: {status_text}\n\nتحكم في إعدادات البوت من الأزرار أدناه:",
         reply_markup=get_admin_menu()
@@ -120,7 +183,7 @@ async def start_broadcast_callback(callback: CallbackQuery):
         [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_panel")]
     ])
     await callback.message.edit_text(
-        "📢 **وضع الإذاعة نشط:**\n\nأرسل الآن الرسالة التي تريد إذاعتها لجميع المستخدمين (صورة، نص، أو فيديو):",
+        "📢 **وضع الإذاعة نشط:**\n\nأرسل الآن الرسالة التي تريد إرسالها لجميع المستخدمين:",
         reply_markup=keyboard
     )
     await callback.answer()
@@ -168,33 +231,44 @@ async def back_menu(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.message(Command("add"))
-async def add_new_link(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    try:
-        parts = message.text.replace("/add", "").strip().split("|")
-        if len(parts) == 2:
-            short_link = parts[0].strip()
-            target_link = parts[1].strip()
-            LINK_DATABASE[short_link] = target_link
-            await message.answer(
-                f"✅ **تمت إضافة الرابط بنجاح للقاعدة!**\n\n"
-                f"🔗 الاختصار: `{short_link}`\n"
-                f"🎯 الهدف: `{target_link}`"
-            )
-        else:
-            await message.answer(
-                "⚠️ صيغة غير صحيحة!\nاستخدم الأمر بالشكل التالي:\n`/add الرابط_المختصر | الرابط_النهائي`"
-            )
-    except Exception as e:
-        await message.answer(f"❌ حدث خطأ: `{str(e)}`")
-
 @dp.message(F.text & ~F.text.startswith("/"))
 async def handle_messages(message: Message):
     user_id = message.from_user.id
     
-    # التحقق من وضع الصيانة للمستخدمين العاديين
+    # 1. استقبال اسم الزر الجديد
+    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_btn_name":
+        btn_name = message.text.strip()
+        ADMIN_STATE[user_id] = f"waiting_btn_url_{btn_name}"
+        await message.answer(
+            f"✅ ممتاز! اسم الزر: `{btn_name}`\n\n🔗 الآن أرسل **الرابط** الذي سيفتح عندما يضغط المستخدم على هذا الزر (مثلاً رابط قناتك `https://t.me/...`):"
+        )
+        return
+
+    # 2. استقبال رابط الزر الجديد وحفظه
+    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_btn_url_"):
+        btn_name = ADMIN_STATE.pop(user_id).replace("waiting_btn_url_", "")
+        btn_url = message.text.strip()
+        CUSTOM_BUTTONS[btn_name] = btn_url
+        
+        await message.answer(
+            f"🎉 **تمت إضافة الزر الجديد بنجاح إلى القائمة الرئيسية!**\n\n🏷️ الاسم: `{btn_name}`\n🔗 الرابط: `{btn_url}`",
+            reply_markup=get_admin_menu()
+        )
+        return
+
+    # 3. تغيير اسم الزر الأساسي
+    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("changing_btn_"):
+        btn_key = ADMIN_STATE.pop(user_id).replace("changing_btn_", "")
+        new_name = message.text.strip()
+        BUTTON_TEXTS[btn_key] = new_name
+        
+        await message.answer(
+            f"✅ **تم تحديث اسم الزر بنجاح إلى:** `{new_name}`",
+            reply_markup=get_admin_menu()
+        )
+        return
+
+    # 4. وضع الصيانة
     if MAINTENANCE_MODE and user_id != ADMIN_ID:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)]
@@ -205,6 +279,7 @@ async def handle_messages(message: Message):
         )
         return
 
+    # 5. نظام الإذاعة
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_broadcast":
         ADMIN_STATE.pop(user_id, None)
         sent_count = 0
@@ -226,6 +301,7 @@ async def handle_messages(message: Message):
         )
         return
 
+    # 6. فحص الروابط واستخراجها
     text = message.text.strip()
     if text and text.startswith("http"):
         processing_msg = await message.answer("⏳ جاري فحص الرابط واستخراج الهدف...")
