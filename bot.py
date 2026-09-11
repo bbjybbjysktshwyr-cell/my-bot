@@ -122,22 +122,22 @@ async def handle_links(message: Message):
             if extracted_url == text and response.url != text and 'boostylink.com' not in response.url:
                 extracted_url = response.url
 
-            # معالجة رابط التتبع rm358 مع استبعاد الروابط غير المرغوبة والـ w3
-            if "rm358.com" in extracted_url:
+            # معالجة روابط التتبع المتقدمة مثل rm358 و rtmark
+            if any(domain in extracted_url for domain in ["rm358.com", "rtmark.net"]):
                 try:
                     sub_resp = scraper.get(extracted_url, headers=headers, allow_redirects=True, timeout=15)
                     sub_html = sub_resp.text
                     
-                    final_match = re.search(r'https?://[^\s<>"\']+(?:target|url|to)=([^\s<>"\']+)', sub_html)
+                    final_match = re.search(r'https?://[^\s<>"\']+(?:target|url|to|dest)=([^\s<>"\']+)', sub_html)
                     if final_match:
                         extracted_url = final_match.group(1)
-                    elif sub_resp.url != extracted_url and "rm358.com" not in sub_resp.url:
+                    elif sub_resp.url != extracted_url and not any(d in sub_resp.url for d in ["rm358.com", "rtmark.net", "boostylink.com"]):
                         extracted_url = sub_resp.url
                     else:
                         all_sub_links = re.findall(r'https?://[^\s<>"\']+', sub_html)
                         for sl in all_sub_links:
                             clean_sl = sl.rstrip('\\"\'.,;')
-                            if not any(d in clean_sl.lower() for d in ['rm358.com', 'boostylink.com', 'google.com', 'w3.org', 'cloudflare']):
+                            if not any(d in clean_sl.lower() for d in ['rm358.com', 'rtmark.net', 'boostylink.com', 'google.com', 'w3.org', 'cloudflare', 'img.gif']):
                                 extracted_url = clean_sl
                                 break
                 except:
