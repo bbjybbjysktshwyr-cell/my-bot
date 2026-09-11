@@ -21,12 +21,10 @@ LINK_DATABASE = {
     "https://boostylink.com/nYsaet7F": "https://bstshrt.com/u/vc691v"
 }
 
-# تخزين مؤقت للرابط المراد إضافته
-PENDING_LINKS = {}
-
 def get_main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 الروابط المدعومة", callback_data="supported_links")],
+        [InlineKeyboardButton(text="⚡️ تجاوز رابط", callback_data="bypass_link")],
         [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
     ])
 
@@ -39,7 +37,7 @@ def get_copy_keyboard(target_url):
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.answer(
-        "مرحباً بك! أرسل رابط الاختصار وسأقوم باستخراج الرابط:",
+        "مرحباً بك في بوت استختراج وتجاوز الروابط. اختر ما تحتاجه من القائمة أدناه:",
         reply_markup=get_main_menu()
     )
 
@@ -51,10 +49,21 @@ async def about_callback(callback: CallbackQuery):
     )
     await callback.answer()
 
+@dp.callback_query(F.data == "bypass_link")
+async def bypass_prompt(callback: CallbackQuery):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
+    ])
+    await callback.message.edit_text(
+        "⚡️ **أرسل الرابط المختصر الآن في المحادثة مباشرة وسأقوم باستخراج هدفه النهائي لك!**",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
 @dp.callback_query(F.data == "supported_links")
 async def supported_links_callback(callback: CallbackQuery):
     supported_text = (
-        "📋 **الروابط والخدمات المدعومة حالياً:**\n\n"
+        "📋 **الروابط والخدمات المدعومة في البوت:**\n\n"
         "• `https://boostylink.com`\n\n"
         "💡 *أرسل أي رابط مدعوم وسأستخرج هدفه فوراً!*"
     )
@@ -66,57 +75,44 @@ async def supported_links_callback(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_menu(callback: CallbackQuery):
-    await callback.message.edit_text("أرسل الرابط المطلوب فحصه:", reply_markup=get_main_menu())
+    await callback.message.edit_text(
+        "مرحباً بك من جديد! اختر ما تحتاجه من القائمة أدناه:",
+        reply_markup=get_main_menu()
+    )
     await callback.answer()
 
-# زر الإضافة السريعة للمدير
-@dp.callback_query(F.data == "add_quick_link")
-async def quick_add_callback(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("❌ هذا الزر لمدير البوت فقط!", show_alert=True)
-        return
-    
-    short_link = PENDING_LINKS.get(callback.from_user.id)
-    if short_link:
-        await callback.message.edit_text(
-            f"✍️ لكي يتم حفظ هذا الرابط:\n`{short_link}`\n\n"
-            f"أرسل لي الآن رسالة بهذا الشكل:\n"
-            f"`/add الرابط_النهائي`\n"
-            f"(مثال: `/add https://example.com/target`)"
-        )
-    else:
-        await callback.message.edit_text("⚠️ انتهت صلاحية الرابط، أرسله من جديد.")
-    await callback.answer()
-
-# أمر الإضافة المباشر للمدير
+# أمر الإضافة المباشر والسريع لك وحدك
 @dp.message(Command("add"))
 async def add_new_link(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
     
     try:
-        target_link = message.text.replace("/add", "").strip()
-        short_link = PENDING_LINKS.get(message.from_user.id)
-        
-        if short_link and target_link:
+        parts = message.text.replace("/add", "").strip().split("|")
+        if len(parts) == 2:
+            short_link = parts[0].strip()
+            target_link = parts[1].strip()
+            
             LINK_DATABASE[short_link] = target_link
             await message.answer(
-                f"✅ **تمت إضافة الرابط بنجاح!**\n\n"
+                f"✅ **تمت إضافة الرابط بنجاح للقاعدة!**\n\n"
                 f"🔗 الاختصار: `{short_link}`\n"
                 f"🎯 الهدف: `{target_link}`"
             )
-            # مسح الرابط المؤقت
-            PENDING_LINKS.pop(message.from_user.id, None)
         else:
-            await message.answer("⚠️ يجدر بك إرسال الرابط غير المعروف أولاً، ثم الضغط على زر الإضافة ثم إرسال الهدف.")
+            await message.answer(
+                "⚠️ صيغة غير صحيحة!\n"
+                "استخدم الأمر بالشكل التالي:\n"
+                "`/add الرابط_المختصر | الرابط_النهائي`"
+            )
     except Exception as e:
-        await message.answer(f"❌ حدث خطأ: `{str(e)}`")
+        await message.answer(f"❌ حدث خطأ أثناء الإضافة: `{str(e)}`")
 
 @dp.message(F.text & ~F.text.startswith("/"))
 async def handle_links(message: Message):
     text = message.text.strip()
     if text and text.startswith("http"):
-        processing_msg = await message.answer("⏳ جاري فحص الرابط...")
+        processing_msg = await message.answer("⏳ جاري فحص الرابط واستخراج الهدف...")
         
         # 1. التحقق من قاعدة البيانات
         if text in LINK_DATABASE:
@@ -150,21 +146,12 @@ async def handle_links(message: Message):
             clean_url = re.sub(r'\s+', '', clean_url)
 
             if clean_url == text:
-                if message.from_user.id == ADMIN_ID:
-                    PENDING_LINKS[message.from_user.id] = text
-                    admin_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="➕ إضافة هذا الرابط للقاعدة", callback_data="add_quick_link")],
-                        [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
-                    ])
-                    await processing_msg.edit_text(
-                        "⚠️ هذا الرابط غير موجود في قاعدة بيانات البوت.\nبصفتك المدير، يمكنك إضافته بضغطة زر:",
-                        reply_markup=admin_keyboard
-                    )
-                else:
-                    await processing_msg.edit_text(
-                        "⚠️ عذراً، هذا الرابط غير مدعوم حالياً أو يتطلب تفاعلاً بشرياً.",
-                        reply_markup=get_copy_keyboard(text)
-                    )
+                await processing_msg.edit_text(
+                    "⚠️ هذا الرابط غير موجود في القاعدة المحلية.\n\n"
+                    "إذا كنت تريد إضافته، استخدم الأمر:\n"
+                    "`/add الرابط_المختصر | الرابط_النهائي`",
+                    reply_markup=get_copy_keyboard(text)
+                )
             else:
                 result_text = (
                     f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
