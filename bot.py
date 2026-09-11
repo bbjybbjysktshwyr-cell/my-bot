@@ -15,7 +15,7 @@ dp = Dispatcher()
 
 def get_main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 فحص وتجاوز رابط", callback_data="bypass_link")],
+        [InlineKeyboardButton(text="🔗 فحص وتاوز رابط", callback_data="bypass_link")],
         [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
     ])
 
@@ -51,7 +51,7 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تتبع الروابط للوصول للوجهة النهائية...")
+        processing_msg = await message.reply("⏳ جاري تفكيك روابط التتبع والوصول للوجهة الأخيرة...")
         
         extracted_url = text
         
@@ -72,11 +72,9 @@ async def handle_links(message: Message):
                 "X-Requested-With": "XMLHttpRequest"
             }
             
-            # خطوة 1: طلب رابط البوستي الأساسي
             response = scraper.get(text, headers=headers, allow_redirects=True, timeout=25)
             html_content = response.text
             
-            # استخراج المعرف الفريد
             path_parts = text.rstrip('/').split('/')
             slug = path_parts[-1] if path_parts else ""
             
@@ -124,18 +122,23 @@ async def handle_links(message: Message):
             if extracted_url == text and response.url != text and 'boostylink.com' not in response.url:
                 extracted_url = response.url
 
-            # خطوة 2: إذا كان الرابط المستخرج عبارة عن موقع تتبع مثل rm358 أو مشابه، نقوم بمتابعة طلبه للوصول للوجهة التي بعده
-            if extracted_url and extracted_url != text:
+            # محطة معالجة إضافية خصيصاً إذا ظهر رابط التتبع rm358
+            if "rm358.com" in extracted_url:
                 try:
-                    sub_response = scraper.get(extracted_url, headers=headers, allow_redirects=True, timeout=15)
-                    if sub_response.url != extracted_url:
-                        extracted_url = sub_response.url
+                    sub_resp = scraper.get(extracted_url, headers=headers, allow_redirects=True, timeout=15)
+                    sub_html = sub_resp.text
+                    
+                    final_match = re.search(r'https?://[^\s<>"\']+(?:target|url|to)=([^\s<>"\']+)', sub_html)
+                    if final_match:
+                        extracted_url = final_match.group(1)
+                    elif sub_resp.url != extracted_url:
+                        extracted_url = sub_resp.url
                     else:
-                        # البحث داخل صفحة التتبّع عن رابط الوجهة الفعلية إذا لم تقم بإعادة توجيه تلقائية
-                        sub_html = sub_response.text
-                        meta_refresh = re.search(r'content=["\'][0-9];\s*url=(https?://[^"\']+)["\']', sub_html, re.IGNORECASE)
-                        if meta_refresh:
-                            extracted_url = meta_refresh.group(1)
+                        all_sub_links = re.findall(r'https?://[^\s<>"\']+', sub_html)
+                        for sl in all_sub_links:
+                            if "rm358.com" not in sl and "boostylink.com" not in sl and "google" not in sl:
+                                extracted_url = sl
+                                break
                 except:
                     pass
 
