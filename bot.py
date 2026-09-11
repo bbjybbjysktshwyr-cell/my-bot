@@ -6,8 +6,8 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-# توكن البوت الخاص بك
-TOKEN = "8815004150:AAEO-paQOWRnQ88w_tSKHyG71TA37ndF1xg"
+# توكن البوت الجديد
+TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
