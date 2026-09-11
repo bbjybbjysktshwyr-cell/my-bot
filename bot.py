@@ -6,7 +6,6 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-# توكن البوت
 TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
 bot = Bot(token=TOKEN)
@@ -16,7 +15,7 @@ scraper = cloudscraper.create_scraper()
 
 def get_main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 فح وتجاوز رابط", callback_data="bypass_link")],
+        [InlineKeyboardButton(text="🔗 فحص وتجاوز رابط", callback_data="bypass_link")],
         [InlineKeyboardButton(text="ℹ️ حول البوت", callback_data="about")]
     ])
 
@@ -52,41 +51,47 @@ async def back_menu(callback: Message):
 async def handle_links(message: Message):
     text = message.text
     if text and text.startswith("http"):
-        processing_msg = await message.reply("⏳ جاري تحليل الروابط المخفية واستخراج الوجهة...")
+        processing_msg = await message.reply("⏳ جاري تفحص مسار التوجيه وسحب الرابط...")
+        
+        extracted_url = None
         
         try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
-                "Referer": text,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-            }
+            # تتبع تاريخ الطلبات وسلسلة التحويلات (Redirect History) بدقة
+            session = cloudscraper.create_scraper()
+            response = session.get(text, timeout=30, allow_redirects=True)
             
-            # جلب الصفحة عبر cloudscraper
-            response = scraper.get(text, headers=headers, timeout=25, allow_redirects=True)
-            html_content = response.text
+            # فحص سجل الـ Redirects بالكامل إذا وجد
+            if response.history:
+                for resp in response.history:
+                    if 'link-center.net' in resp.url or ('boostylink.com' not in resp.url and 'rm358.com' not in resp.url):
+                        extracted_url = resp.url
+                        break
             
-            extracted_url = None
-            
-            # 1. البحث الدقيق عن رابط link-center أينما وجد في الصفحة
-            match_lc = re.search(r'https?://link-center\.net/[^\s<>"\']+', html_content, re.IGNORECASE)
-            if match_lc:
-                extracted_url = match_lc.group(0)
-            
-            # 2. البحث عن الروابط الموجودة داخل متغيرات JavaScript مثل window.location أو targetUrl
-            if not extracted_url:
-                js_vars = re.findall(r'["\'](https?://[^"\']+)["\']', html_content)
-                for v in js_vars:
-                    if 'link-center.net' in v or 'download' in v or 'to/' in v:
-                        if 'boostylink.com' not in v:
-                            extracted_url = v
-                            break
-            
-            # 3. إذا لم يوجد، نأخذ الرابط النهائي للـ Redirect
-            if not extracted_url or extracted_url == text:
-                extracted_url = response.url
+            # إذا لم نجد في التاريخ، نفحص الـ URL النهائي للاستجابة
+            if not extracted_url and response.url and response.url != text:
+                if 'link-center.net' in response.url or 'boostylink.com' not in response.url:
+                    extracted_url = response.url
 
-            # تنظيف الرابط من أي زوائد
-            clean_url = html.unescape(extracted_url).rstrip('\\"\'.,;')
+            # فحص محتوى الصفحة الـ HTML في حال كان الرابط مخفياً بداخل نصوص السكربتات المتقدمة
+            if not extracted_url or extracted_url == text:
+                html_content = response.text
+                match_lc = re.search(r'https?://link-center\.net/[^\s<>"\']+', html_content, re.IGNORECASE)
+                if match_lc:
+                    extracted_url = match_lc.group(0)
+                else:
+                    # البحث عن أي رابط أجنبي غير إعلاني
+                    all_urls = re.findall(r'https?://[^\s<>"\']+', html_content)
+                    for u in all_urls:
+                        u_clean = u.rstrip('\\"\'.,;')
+                        if 'boostylink.com' not in u_clean and 'rm358.com' not in u_clean and 'googletagmanager' not in u_clean:
+                            if u_clean != text:
+                                extracted_url = u_clean
+                                break
+
+            if not extracted_url:
+                extracted_url = text
+
+            clean_url = html.unescape(extracted_url)
 
             result_text = (
                 f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
