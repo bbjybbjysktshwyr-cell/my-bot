@@ -6,6 +6,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
+# توكن البوت
 TOKEN = "8512256766:AAGmFS1y0JnmACIb42bDGREbZ-gcfPliev4"
 
 bot = Bot(token=TOKEN)
@@ -74,13 +75,14 @@ async def handle_links(message: Message):
             if not extracted_url or extracted_url == text:
                 extracted_url = text
 
-            # إزالة أي مسافات أو أسطر جديدة قد تتسبب في انكسار الرابط
+            # تنظيف الرابط وإزالة أي مسافات أو أسطر جديدة
             clean_url = html.unescape(extracted_url).strip()
             clean_url = re.sub(r'\s+', '', clean_url)
 
+            # تم إزالة الأقواس الخلفية (` `) من هنا لكي يظهر الرابط نظيفاً وقابلاً للضغط
             result_text = (
                 f"🎉 **تم استخراج الرابط بنجاح!**\n\n"
-                f"🔗 `{clean_url}`\n\n"
+                f"🔗 {clean_url}\n\n"
                 f"🔔 اضغط على زر النسخ أدناه للنسخ السريع:"
             )
             
