@@ -1,39 +1,57 @@
 import telebot
-import requests
+import subprocess
 import time
 
 TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
 bot = telebot.TeleBot(TOKEN)
 
-print("البوت يعمل الآن وجاهز للاستقبال...")
+print("البوت يعمل الآن وجاهز للاستقبال ومعالجة الروابط...")
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     try:
-        bot.reply_to(message, "أهلاً بك! البوت متصل ويعمل بنجاح 🚀")
-        print("تم الرد على أمر /start بنجاح")
+        bot.reply_to(message, "أهلاً بك في بوت تجاوز روابط PlatoBoost! 🚀\nأرسل لي الرابط وسأقوم بحله واستخراج النتيجة فوراً.")
     except Exception as e:
-        print(f"خطأ: {e}")
+        print(f"خطأ في start: {e}")
 
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
     user_text = message.text.strip()
-    print(f"تم استلام رسالة: {user_text}")
+    
     if user_text.startswith("http://") or user_text.startswith("https://"):
-        msg = bot.reply_to(message, "⏳ جاري معالجة الرابط...")
+        msg = bot.reply_to(message, "⏳ جاري تشغيل أداة التجاوز والحل، قد يستغرق ذلك بضع ثوانٍ...")
+        
         try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            response = requests.get(user_text, headers=headers, allow_redirects=True, timeout=10)
-            bot.edit_message_text(f"✅ النتيجة:\n{response.url}", chat_id=message.chat.id, message_id=msg.message_id)
+            # استدعاء ملف main.py محلياً لتنفيذ الحل على الرابط المرسل
+            process = subprocess.run(
+                ["python", "main.py", user_text],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30
+            )
+            
+            output = process.stdout.strip()
+            error_output = process.stderr.strip()
+            
+            if output:
+                # إرسال النتيجة المستخرجة
+                bot.edit_message_text(f"✅ تم الحل بنجاح النتيجة:\n\n{output}", chat_id=message.chat.id, message_id=msg.message_id)
+            elif error_output:
+                bot.edit_message_text(f"⚠️ حدث تنبيه من الأداة:\n{error_output[:300]}", chat_id=message.chat.id, message_id=msg.message_id)
+            else:
+                bot.edit_message_text("❌ لم تقم الأداة بإرجاع أي نتيجة.", chat_id=message.chat.id, message_id=msg.message_id)
+                
+        except subprocess.TimeoutExpired:
+            bot.edit_message_text("❌ انتهت مهلة الانتظار (Timeout)، استغرقت عملية الحل وقتاً طويلاً.", chat_id=message.chat.id, message_id=msg.message_id)
         except Exception as e:
-            bot.edit_message_text(f"❌ حدث خطأ: {str(e)}", chat_id=message.chat.id, message_id=msg.message_id)
+            bot.edit_message_text(f"❌ حدث خطأ أثناء تشغيل أداة الحل: {str(e)}", chat_id=message.chat.id, message_id=msg.message_id)
     else:
-        bot.reply_to(message, f"أهلاً بك! تم استلام رسالتك: {user_text}")
+        bot.reply_to(message, "يرجى إرسال رابط صحيح يبدأ بـ http:// أو https://")
 
-# حلقة تشغيل آمنة تعيد الاتصال تلقائياً إذا توقف البوت
 while True:
     try:
         bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=30)
     except Exception as e:
-        print(f"حدث انقطاع في الاتصال: {e}, جاري إعادة المحاولة خلال 5 ثوانٍ...")
-        time.sleep(5)
+        print(f"إعادة اتصال تلقائي بعد الخطأ: {e}")
+        time.sleep(3)
