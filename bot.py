@@ -14,11 +14,8 @@ SUPPORT_USER_URL = "https://t.me/AL_shz1"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# قاعدة بيانات قنوات الاشتراك الإجباري (يمكن للمدير إضافتها أو حذفها ديناميكياً)
-# الشكل: {"اسم_أو_يوزر_القناة": "رابط_القناة"}
-CHANNELS_DB = {
-    "@YourChannel": "https://t.me/YourChannel"
-}
+# قاعدة بيانات قنوات الاشتراك الإجباري (نظفناها لتكون فارغة أو تبدأ بشكل صحيح)
+CHANNELS_DB = {}
 
 LINK_DATABASE = {
     "https://boostylink.com/EbnbkEHt": "https://link-center.net/2603650/nY1W5wuviUhS",
@@ -60,7 +57,7 @@ USERS_SET = set()
 ADMIN_STATE = {}
 MAINTENANCE_MODE = False
 
-# دالة التحقق من الاشتراك في جميع القنوات المسجلة
+# دالة التحقق من الاشتراك في القنوات المضافة
 async def check_subscription(user_id: int) -> bool:
     if user_id == ADMIN_ID:
         return True  # المدير مستثنى دائماً
@@ -68,9 +65,16 @@ async def check_subscription(user_id: int) -> bool:
     if not CHANNELS_DB:
         return True  # إذا لم تكن هناك قنوات مضافة، يسمح بالدخول
         
-    for ch_username in CHANNELS_DB.keys():
+    for ch_key in CHANNELS_DB.keys():
         try:
-            member = await bot.get_chat_member(chat_id=ch_username, user_id=user_id)
+            # استخراج يوزر القناة الصحيح لفحص العضوية سواء تم إدخال رابط أو يوزر
+            chat_target = ch_key
+            if "t.me/" in ch_key:
+                chat_target = "@" + ch_key.rstrip("/").split("/")[-1]
+            elif not ch_key.startswith("@"):
+                chat_target = "@" + ch_key
+
+            member = await bot.get_chat_member(chat_id=chat_target, user_id=user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 return False
         except Exception:
@@ -79,8 +83,10 @@ async def check_subscription(user_id: int) -> bool:
 
 def get_sub_keyboard():
     keyboard = []
-    for ch_username, ch_url in CHANNELS_DB.items():
-        keyboard.append([InlineKeyboardButton(text=f"📢 اشترك في قناة {ch_username}", url=ch_url)])
+    for ch_key, ch_url in CHANNELS_DB.items():
+        # عرض اسم القناة أو الرابط بشكل واضح ومنسق
+        display_name = ch_key.split('/')[-1] if 't.me/' in ch_key else ch_key
+        keyboard.append([InlineKeyboardButton(text=f"📢 اشترك في قناة {display_name}", url=ch_url)])
     keyboard.append([InlineKeyboardButton(text="✅ لقد اشتركت، تحقق", callback_data="check_sub")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -144,7 +150,6 @@ async def verify_subscription(callback: CallbackQuery):
     username = callback.from_user.username
     
     if await check_subscription(user_id):
-        # إرسال إشعار فوري للمدير بأن شخصاً ما اشترك
         if user_id != ADMIN_ID:
             try:
                 user_info = f"👤 المستخدم: {user_name} (رابطه: @{username if username else 'لا يوجد'} | الآيدي: `{user_id}`)"
@@ -173,7 +178,6 @@ async def admin_panel_callback(callback: CallbackQuery):
     )
     await callback.answer()
 
-# قسم إدارة قنوات الاشتراك الإجباري
 @dp.callback_query(F.data == "admin_manage_channels")
 async def admin_manage_channels(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -184,7 +188,7 @@ async def admin_manage_channels(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ إضافة قناة جديدة", callback_data="add_channel_prompt")],
         [InlineKeyboardButton(text="🗑️ حذف قناة", callback_data="del_channel_prompt")],
-        [InlineKeyboardButton(text="🔙 رجوع لودحة التحكم", callback_data="admin_panel")]
+        [InlineKeyboardButton(text="🔙 رجوع لوحة التحكم", callback_data="admin_panel")]
     ])
     
     await callback.message.edit_text(
@@ -197,12 +201,12 @@ async def admin_manage_channels(callback: CallbackQuery):
 async def add_channel_prompt(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         return
-    ADMIN_STATE[callback.from_user.id] = "waiting_channel_username"
+    ADMIN_STATE[callback.from_user.id] = "waiting_channel_input"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_manage_channels")]
     ])
     await callback.message.edit_text(
-        "➕ **إضافة قناة اشتراك إجباري:**\n\nأرسل الآن **يوزر القناة** مع الرمز `@` (مثال: `@MyChannel`):",
+        "➕ **إضافة قناة اشتراك إجباري:**\n\nأرسل الآن **رابط القناة** مباشرة (مثال: `https://t.me/scriptRoger`):",
         reply_markup=keyboard
     )
     await callback.answer()
@@ -232,10 +236,9 @@ async def execute_remove_channel(callback: CallbackQuery):
         return
     ch_name = callback.data.replace("remove_ch_", "")
     CHANNELS_DB.pop(ch_name, None)
-    await callback.answer(f"✅ تم حذف القناة {ch_name} بنجاح!", show_alert=True)
+    await callback.answer(f"✅ تم حذف القناة بنجاح!", show_alert=True)
     await admin_manage_channels(callback)
 
-# لوحة إدارة السكربتات
 @dp.callback_query(F.data == "admin_manage_scripts")
 async def admin_manage_scripts(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -260,10 +263,7 @@ async def add_map_prompt(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_manage_scripts")]
     ])
-    await callback.message.edit_text(
-        "➕ **إضافة ماب جديد:**\n\nأرسل الآن اسم الماب:",
-        reply_markup=keyboard
-    )
+    await callback.message.edit_text("➕ **إضافة ماب جديد:**\n\nأرسل الآن اسم الماب:", reply_markup=keyboard)
     await callback.answer()
 
 @dp.callback_query(F.data == "add_script_prompt")
@@ -406,22 +406,16 @@ async def handle_messages(message: Message):
         await message.answer("⚠️ **يجب عليك الاشتراك في القنوات أولاً لاستخدام البوت!**", reply_markup=get_sub_keyboard())
         return
 
-    # 1. إضافة يوزر القناة الجديدة
-    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_channel_username":
-        ch_username = message.text.strip()
-        ADMIN_STATE[user_id] = f"waiting_channel_url_{ch_username}"
-        await message.answer(f"✅ يوزر القناة: `{ch_username}`\n\n🔗 الآن أرسل **رابط الدعوة الخاص بالقناة** (مثال: `https://t.me/...`):")
-        return
-
-    # 2. استقبال رابط القناة وحفظها نهائياً
-    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_channel_url_"):
-        ch_username = ADMIN_STATE.pop(user_id).replace("waiting_channel_url_", "")
+    # استقبال رابط القناة وإضافتها مباشرة (تأخذ الرابط وتجعله زر الاشتراك)
+    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_channel_input":
         ch_url = message.text.strip()
-        CHANNELS_DB[ch_username] = ch_url
-        await message.answer(f"🎉 **تمت إضافة القناة بنجاح للاشتراك الإجباري!**\n\n📢 القناة: `{ch_username}`", reply_markup=get_admin_menu())
+        ADMIN_STATE.pop(user_id, None)
+        # حفظ الرابط كقناة مباشرة
+        CHANNELS_DB[ch_url] = ch_url
+        await message.answer(f"🎉 **تمت إضافة القناة بنجاح للاشتراك الإجباري!**\n\n🔗 الرابط: `{ch_url}`", reply_markup=get_admin_menu())
         return
 
-    # 3. استقبال اسم الماب الجديد
+    # استقبال اسم الماب الجديد
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_new_map_name":
         map_name = message.text.strip()
         MAPS_DB[map_name] = {"type": "script_menu"}
@@ -430,7 +424,7 @@ async def handle_messages(message: Message):
         await message.answer(f"✅ تمت إضافة الماب: `{map_name}`", reply_markup=get_admin_menu())
         return
 
-    # 4. استقبال عنوان السكريبت
+    # استقبال عنوان السكريبت
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_script_title_"):
         map_name = ADMIN_STATE.pop(user_id).replace("waiting_script_title_", "")
         script_title = message.text.strip()
@@ -438,7 +432,7 @@ async def handle_messages(message: Message):
         await message.answer(f"🔗 أرسل الآن **محتوى السكريبت**:")
         return
 
-    # 5. استقبال محتوى السكريبت
+    # استقبال محتوى السكريبت
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_script_content_"):
         parts = ADMIN_STATE.pop(user_id).replace("waiting_script_content_", "").split("_", 1)
         map_name = parts[0]
@@ -468,7 +462,7 @@ async def handle_messages(message: Message):
         await status_msg.edit_text(f"✅ تمت الإذاعة إلى `{sent_count}` مستخدماً.")
         return
 
-    # 6. فحص الروابط
+    # فحص الروابط
     text = message.text.strip()
     if text and text.startswith("http"):
         processing_msg = await message.answer("⏳ جاري الفحص واستخراج الهدف...")
