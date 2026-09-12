@@ -14,8 +14,7 @@ SUPPORT_USER_URL = "https://t.me/AL_shz1"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# قاعدة بيانات قنوات الاشتراك الإجباري (تحفظ الآيدي كمعرف أساسي والرابط كزر)
-# مثال: {-100123456789: "https://t.me/your_channel"}
+# قاعدة بيانات قنوات الاشتراك الإجباري
 CHANNELS_DB = {}
 
 LINK_DATABASE = {
@@ -58,28 +57,28 @@ USERS_SET = set()
 ADMIN_STATE = {}
 MAINTENANCE_MODE = False
 
-# دالة التحقق الحقيقي من الاشتراك باستخدام آيدي القناة
 async def check_subscription(user_id: int) -> bool:
     if user_id == ADMIN_ID:
-        return True  # المدير مستثنى دائماً
+        return True
     
     if not CHANNELS_DB:
-        return True  # إذا لم توجد قنوات مضافة، يسمح بالدخول
+        return True
         
-    for chat_id in CHANNELS_DB.keys():
+    for chat_id, ch_url in CHANNELS_DB.items():
         try:
             member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-            if member.status not in ["member", "administrator", "creator"]:
+            # التحقق من حالة العضو بدقة
+            if member.status in ["left", "kicked"]:
                 return False
-        except Exception:
-            # إذا حدث خطأ (مثلاً البوت ليس مشرفاً في القناة) يعتبره غير مشترك ليتم تنبيه المدير
+        except Exception as e:
+            print(f"Error checking sub for chat {chat_id}: {e}")
+            # إذا فشل الفحص بسبب عدم صلاحية البوت، نعتبره غير مشترك لتفادي التعليق
             return False
     return True
 
 def get_sub_keyboard():
     keyboard = []
     for chat_id, ch_url in CHANNELS_DB.items():
-        # محاولة جلب معلومات القناة لعرض اسمها الحقيقي على الزر
         keyboard.append([InlineKeyboardButton(text="📢 اشترك في القناة", url=ch_url)])
     keyboard.append([InlineKeyboardButton(text="✅ لقد اشتركت، تحقق", callback_data="check_sub")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -140,18 +139,13 @@ async def send_welcome(message: Message):
 @dp.callback_query(F.data == "check_sub")
 async def verify_subscription(callback: CallbackQuery):
     user_id = callback.from_user.id
-    user_name = callback.from_user.full_name
-    username = callback.from_user.username
     
     if await check_subscription(user_id):
-        if user_id != ADMIN_ID:
-            try:
-                user_info = f"👤 المستخدم: {user_name} (رابطه: @{username if username else 'لا يوجد'} | الآيدي: `{user_id}`)"
-                await bot.send_message(ADMIN_ID, f"🔔 **إشعار اشتراك جديد!**\n\n{user_info}\nقام باجتياز اشتراك القنوات بنجاح ودخل البوت ✅")
-            except Exception:
-                pass
-                
-        await callback.message.delete()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        
         is_admin = (user_id == ADMIN_ID)
         await callback.message.answer(
             "✅ شكراً لاشتراكاتك! تم تفعيل البوت بنجاح:",
@@ -400,7 +394,6 @@ async def handle_messages(message: Message):
         await message.answer("⚠️ **يجب عليك الاشتراك في القنوات أولاً لاستخدام البوت!**", reply_markup=get_sub_keyboard())
         return
 
-    # استقبال تحويل الرسالة للقناة لحفظها كاشتراك إجباري حقيقي
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_channel_forward":
         if message.forward_from_chat and message.forward_from_chat.type == "channel":
             chat_id = message.forward_from_chat.id
@@ -412,7 +405,6 @@ async def handle_messages(message: Message):
             await message.answer("❌ هذه ليست رسالة محولة من قناة! يرجى تحويل رسالة من قناتك الخاصة التي أضفت البوت مشرفاً فيها.")
         return
 
-    # استقبال رابط الزر بعد حفظ الآيدي
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_channel_link_"):
         chat_id = int(ADMIN_STATE.pop(user_id).replace("waiting_channel_link_", ""))
         ch_url = message.text.strip()
@@ -420,7 +412,6 @@ async def handle_messages(message: Message):
         await message.answer(f"🎉 **تمت إضافة القناة بنجاح كاشتراك إجباري حقيقي!**\n\n🆔 الآيدي: `{chat_id}`\n🔗 الرابط: `{ch_url}`", reply_markup=get_admin_menu())
         return
 
-    # استقبال اسم الماب الجديد
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_new_map_name":
         map_name = message.text.strip()
         MAPS_DB[map_name] = {"type": "script_menu"}
@@ -429,7 +420,6 @@ async def handle_messages(message: Message):
         await message.answer(f"✅ تمت إضافة الماب: `{map_name}`", reply_markup=get_admin_menu())
         return
 
-    # استقبال عنوان السكريبت
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_script_title_"):
         map_name = ADMIN_STATE.pop(user_id).replace("waiting_script_title_", "")
         script_title = message.text.strip()
@@ -437,7 +427,6 @@ async def handle_messages(message: Message):
         await message.answer(f"🔗 أرسل الآن **محتوى السكريبت**:")
         return
 
-    # استقبال محتوى السكريبت
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_script_content_"):
         parts = ADMIN_STATE.pop(user_id).replace("waiting_script_content_", "").split("_", 1)
         map_name = parts[0]
@@ -467,7 +456,6 @@ async def handle_messages(message: Message):
         await status_msg.edit_text(f"✅ تمت الإذاعة إلى `{sent_count}` مستخدماً.")
         return
 
-    # فحص الروابط
     text = message.text.strip()
     if text and text.startswith("http"):
         processing_msg = await message.answer("⏳ جاري الفحص واستخراج الهدف...")
@@ -491,7 +479,7 @@ async def handle_messages(message: Message):
             if clean_url == text:
                 await processing_msg.edit_text(f"🔗 {text}\n\n💡 تواصل مع الدعم الفني:", reply_markup=get_unknown_link_keyboard(text))
             else:
-                await processing_msg.edit_text(f"🎉 **تم الاستخراج بنجاح!**\n\n🔗 {clean_url}", reply_markup=get_copy_keyboard(clean_url))
+                await processing_msg.edit_text(f"🎉 **تم الاستخراج بنجاح!**\n\n🔗 {clean_url}", reply_markup=get_copy_kwargs := get_copy_keyboard(clean_url))
         except Exception as e:
             await processing_msg.edit_text(f"❌ حدث خطأ:\n`{str(e)}`")
 
