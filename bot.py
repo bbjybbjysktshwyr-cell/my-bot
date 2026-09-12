@@ -8,7 +8,7 @@ bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "أهلاً بك! أسل رابط LootLabs لتجربة التخطي واستخراج المفتاح.")
+    bot.reply_to(message, "أهلاً بك! أرسل رابط LootLabs لتجربة التخطي واستخراج المفتاح.")
 
 @bot.message_handler(func=lambda message: True)
 def handle_link(message):
@@ -32,4 +32,5 @@ def handle_link(message):
 
 if __name__ == "__main__":
     print("البوت يعمل الآن...")
-    bot.infinity_polling()
+    bot.remove_webhook()
+    bot.infinity_polling(skip_pending=True)
