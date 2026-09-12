@@ -1,4 +1,4 @@
-IqVS telebot
+import telebot
 import requests
 
 TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
@@ -12,13 +12,11 @@ def send_welcome(message):
         bot.reply_to(message, "أهلاً بك! البوت متصل ويعمل بنجاح 🚀")
         print("تم الرد على أمر /start بنجاح")
     except Exception as e:
-        print(f"خطأ في الرد على start: {e}")
+        print(f"خطأ: {e}")
 
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
     user_text = message.text.strip()
-    print(f"تم استلام رسالة: {user_text}")
-    
     if user_text.startswith("http://") or user_text.startswith("https://"):
         msg = bot.reply_to(message, "⏳ جاري معالجة الرابط...")
         try:
