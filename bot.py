@@ -1,7 +1,7 @@
-import telebot
+IqVS telebot
 import requests
 
-TOKEN = "8966597040:AAFrS5K7XJD5bXToG4m3IqVS"
+TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
 bot = telebot.TeleBot(TOKEN)
 
 print("البوت يعمل الآن وجاهز للاستقبال...")
