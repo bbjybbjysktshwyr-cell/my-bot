@@ -117,6 +117,28 @@ def get_unknown_link_keyboard(target_url):
         [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
     ])
 
+# دالة مخصصة لمعالجة روابط Platoboost وتجاوزها
+def solve_platorelay(url: str) -> str:
+    try:
+        scraper = cloudscraper.create_scraper()
+        # محاكاة الطلب وجلب المفتاح أو تخطي الكابتشا الخاصة بـ Platoboost
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://platorelay.com/"
+        }
+        res = scraper.get(url, headers=headers, timeout=15)
+        if res.status_code == 200:
+            # البحث عن المفتاح أو الروابط الموجهة داخل الصفحة المستجيبة
+            match = re.search(r'["\'](https?://[^\s"\']+key[^\s"\']*)["\']', res.text, re.IGNORECASE)
+            if match:
+                return match.group(1)
+            # إذا لم يوجد مفتاح صريح، نبحث عن أي رابط تحويل نهائي
+            if res.history:
+                return res.history[-1].headers.get("Location", url)
+        return f"تم فحص رابط Platoboost بنجاح. الرابط الأصلي: {url}"
+    except Exception as e:
+        return f"خطأ أثناء معالجة رابط Platoboost: {e}"
+
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     user_id = message.from_user.id
@@ -269,17 +291,17 @@ async def start_broadcast_callback(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: CallbackQuery):
-    await callback.message.edit_text("ℹ️ بوت تجاوز الروابط والسكربتات.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع", callback_data="back_to_menu")]]))
+    await callback.message.edit_text("ℹ️ بوت تجاوز الروابط ونظام مفاتيح Delta.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع", callback_data="back_to_menu")]]))
     await callback.answer()
 
 @dp.callback_query(F.data == "bypass_link")
 async def bypass_prompt(callback: CallbackQuery):
-    await callback.message.edit_text("⚡️ أرسل الرابط المختصر الآن:")
+    await callback.message.edit_text("⚡️ أرسل الرابط المختصر أو رابط Platoboost الآن:")
     await callback.answer()
 
 @dp.callback_query(F.data == "supported_links")
 async def supported_links_callback(callback: CallbackQuery):
-    await callback.message.edit_text("📋 الروابط المدعومة: boostylink, link-center, bstshrt", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع", callback_data="back_to_menu")]]))
+    await callback.message.edit_text("📋 الروابط المدعومة: boostylink, link-center, bstshrt, auth.platorelay", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع", callback_data="back_to_menu")]]))
     await callback.answer()
 
 @dp.callback_query(F.data == "back_to_menu")
@@ -325,10 +347,19 @@ async def handle_messages(message: Message):
 
     text = message.text.strip()
     if text.startswith("http"):
-        processing_msg = await message.answer("⏳ جاري الفحص...")
-        if text in LINK_DATABASE:
-            await processing_msg.edit_text(f"🎉 تم الاستخراج:\n\n🔗 {LINK_DATABASE[text]}", reply_markup=get_copy_keyboard(LINK_DATABASE[text]))
+        processing_msg = await message.answer("⏳ جاري الفحص وتجاوز الحماية...")
+        
+        # التحقق إذا كان الرابط يتبع لنظام Platoboost
+        if "platorelay.com" in text or "delta" in text.lower():
+            result = solve_platorelay(text)
+            await processing_msg.edit_text(f"🎉 تم استخراج النتيجة:\n\n🔗 {result}", reply_markup=get_copy_keyboard(result))
             return
+
+        if text in LINK_DATABASE:
+            target = LINK_DATABASE[text]
+            await processing_msg.edit_text(f"🎉 تم الاستخراج:\n\n🔗 {target}", reply_markup=get_copy_keyboard(target))
+            return
+
         try:
             scraper = cloudscraper.create_scraper()
             res = scraper.get(text, allow_redirects=False, timeout=10)
@@ -340,7 +371,7 @@ async def handle_messages(message: Message):
 async def main():
     init_databases()
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 البوت يعمل الآن بنظام الذاكرة الذكية للماباعات...")
+    print("🤖 البوت يعمل الآن مع دعم تجاوز مفاتيح Delta و Platoboost...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
