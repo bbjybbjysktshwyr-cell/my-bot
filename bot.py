@@ -1,9 +1,9 @@
-import os
+BgSDQos
 import telebot
 from shadows_v2 import getDest
 
 # توكن البوت الخاص بك
-TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
+TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['start'])
