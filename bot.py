@@ -14,7 +14,7 @@ SUPPORT_USER_URL = "https://t.me/AL_shz1"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# قاعدة بيانات قنوات الاشتراك (الآيدي مفتاح، واسم/رابط القناة قيمة)
+# قاعدة بيانات قنوات الاشتراك الإجباري
 CHANNELS_DB = {}
 
 LINK_DATABASE = {
@@ -62,12 +62,11 @@ async def check_subscription(user_id: int) -> bool:
         return True
     
     if not CHANNELS_DB:
-        return True  # إذا لم تكن هناك أي قناة مضافة، يسمح بالدخول طبيعياً
+        return True  # إذا لم تُضاف أي قناة بعد، يسمح بالدخول طبيعياً
         
     for chat_id, data in CHANNELS_DB.items():
         try:
             member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-            # إذا كان العضو غادر القناة أو مطروداً
             if member.status in ["left", "kicked"]:
                 return False
         except Exception as e:
@@ -451,7 +450,7 @@ async def handle_messages(message: Message):
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_broadcast":
         ADMIN_STATE.pop(user_id, None)
         sent_count = 0
-:        status_msg = await message.answer("⏳ جاري الإذاعة...")
+        status_msg = await message.answer("⏳ جاري الإذاعة...")
         for uid in USERS_SET:
             try:
                 await message.send_copy(chat_id=uid)
