@@ -11,11 +11,11 @@ TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
 ADMIN_ID = 6697426766
 SUPPORT_USER_URL = "https://t.me/AL_shz1"
 
+# قناة الاشتراك الإجباري الثابتة الخاصة بك
+REQUIRED_CHANNEL_USERNAME = "@scriptRoger"
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
-
-# قاعدة بيانات قنوات الاشتراك الإجباري
-CHANNELS_DB = {}
 
 LINK_DATABASE = {
     "https://boostylink.com/EbnbkEHt": "https://link-center.net/2603650/nY1W5wuviUhS",
@@ -29,7 +29,6 @@ BUTTON_TEXTS = {
     "admin_panel": "⚙️ لوحة تحكم المدير",
     "broadcast": "💬 إرسال إذاعة للكل",
     "manage_scripts": "📂 إدارة الماباعات والسكربتات",
-    "manage_channels": "📢 إدارة قنوات الاشتراك",
     "maintenance": "🛠️ تفعيل وضع الصيانة",
     "maintenance_off": "🟢 إلغاء وضع الصيانة",
     "back_to_menu": "🔙 رجوع للقائمة",
@@ -60,26 +59,20 @@ MAINTENANCE_MODE = False
 async def check_subscription(user_id: int) -> bool:
     if user_id == ADMIN_ID:
         return True
-    
-    if not CHANNELS_DB:
-        return True  # إذا لم تُضاف أي قناة بعد، يسمح بالدخول طبيعياً
-        
-    for chat_id, data in CHANNELS_DB.items():
-        try:
-            member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-            if member.status in ["left", "kicked"]:
-                return False
-        except Exception as e:
-            print(f"Error checking sub for chat {chat_id}: {e}")
+    try:
+        member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL_USERNAME, user_id=user_id)
+        if member.status in ["left", "kicked"]:
             return False
-    return True
+        return True
+    except Exception as e:
+        print(f"Error checking sub: {e}")
+        return False
 
 def get_sub_keyboard():
-    keyboard = []
-    for chat_id, data in CHANNELS_DB.items():
-        keyboard.append([InlineKeyboardButton(text=f"📢 {data['title']}", url=data['url'])])
-    keyboard.append([InlineKeyboardButton(text="✅ لقد اشتركت، تحقق", callback_data="check_sub")])
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 اشترك في قناة البوت", url="https://t.me/scriptRoger")],
+        [InlineKeyboardButton(text="✅ لقد اشتركت، تحقق", callback_data="check_sub")]
+    ])
 
 def get_main_menu(is_admin=False):
     keyboard = [
@@ -97,7 +90,6 @@ def get_admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=BUTTON_TEXTS["broadcast"], callback_data="start_broadcast")],
         [InlineKeyboardButton(text=BUTTON_TEXTS["manage_scripts"], callback_data="admin_manage_scripts")],
-        [InlineKeyboardButton(text=BUTTON_TEXTS["manage_channels"], callback_data="admin_manage_channels")],
         [InlineKeyboardButton(text=m_text, callback_data="toggle_maintenance")],
         [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
     ])
@@ -120,10 +112,15 @@ async def send_welcome(message: Message):
     user_id = message.from_user.id
     USERS_SET.add(user_id)
     
+    if MAINTENANCE_MODE and user_id != ADMIN_ID:
+        await message.answer("🛠️ **البوت في وضع الصيانة حالياً، يرجى المحاولة لاحقاً.**", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)]]))
+        return
+
     if not await check_subscription(user_id):
         await message.answer(
-            "⚠️ **عذراً، يجب عليك الاشتراك في قنوات البوت أولاً لتتمكن من استخدامها!**\n\n"
-            "اشترك في القناة أدناه ثم اضغط على زر التحقق:",
+            "⚠️ **عذراً، يجب عليك الاشتراك في قناة البوت أولاً لتتمكن من استخدامه!**\n\n"
+            "قناة البوت: @scriptRoger\n\n"
+            "اشترك فيها ثم اضغط على زر التحقق أدناه:",
             reply_markup=get_sub_keyboard()
         )
         return
@@ -142,18 +139,18 @@ async def verify_subscription(callback: CallbackQuery):
         is_admin = (user_id == ADMIN_ID)
         try:
             await callback.message.edit_text(
-                "✅ شكراً لاشتراكاتك! تم تفعيل البوت بنجاح:",
+                "✅ شكراً لاشتراكك! تم تفعيل البوت بنجاح:",
                 reply_markup=get_main_menu(is_admin)
             )
         except Exception:
             await callback.message.delete()
             await callback.message.answer(
-                "✅ شكراً لاشتراكاتك! تم تفعيل البوت بنجاح:",
+                "✅ شكراً لاشتراكك! تم تفعيل البوت بنجاح:",
                 reply_markup=get_main_menu(is_admin)
             )
         await callback.answer()
     else:
-        await callback.answer("❌ لم تقم بالاشتراك في القناة المطلوبة، أو أن البوت ليس مشرفاً فيها!", show_alert=True)
+        await callback.answer("❌ لم تقم بالاشتراك في القناة بعد، يرجى الاشتراك ثم المحاولة مرة أخرى!", show_alert=True)
 
 @dp.callback_query(F.data == "admin_panel")
 async def admin_panel_callback(callback: CallbackQuery):
@@ -166,67 +163,6 @@ async def admin_panel_callback(callback: CallbackQuery):
         reply_markup=get_admin_menu()
     )
     await callback.answer()
-
-@dp.callback_query(F.data == "admin_manage_channels")
-async def admin_manage_channels(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return
-    
-    ch_list_text = "\n".join([f"• القناة: `{data['title']}` (آيدي: `{chat_id}`)" for chat_id, data in CHANNELS_DB.items()]) if CHANNELS_DB else "لا توجد قنوات مضافة حالياً."
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ إضافة قناة جديدة", callback_data="add_channel_prompt")],
-        [InlineKeyboardButton(text="🗑️ حذف قناة", callback_data="del_channel_prompt")],
-        [InlineKeyboardButton(text="🔙 رجوع لوحة التحكم", callback_data="admin_panel")]
-    ])
-    
-    await callback.message.edit_text(
-        f"📢 **إدارة قنوات الاشتراك الإجباري:**\n\nالقنوات الحالية:\n{ch_list_text}\n\nاختر العملية التي تريدها:",
-        reply_markup=keyboard
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "add_channel_prompt")
-async def add_channel_prompt(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return
-    ADMIN_STATE[callback.from_user.id] = "waiting_channel_forward"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_manage_channels")]
-    ])
-    await callback.message.edit_text(
-        "➕ **طريقة إضافة القناة الصحيحة:**\n\n1️⃣ أضف البوت **مشرفاً** في قناتك.\n2️⃣ قم **بتحويل (Forward)** رسالة من قناتك هنا الآن:",
-        reply_markup=keyboard
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "del_channel_prompt")
-async def del_channel_prompt(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return
-    if not CHANNELS_DB:
-        await callback.answer("⚠️ لا توجد قنوات للحذف!", show_alert=True)
-        return
-        
-    kb = []
-    for chat_id, data in CHANNELS_DB.items():
-        kb.append([InlineKeyboardButton(text=f"🗑️ حذف: {data['title']}", callback_data=f"remove_ch_{chat_id}")])
-    kb.append([InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_manage_channels")])
-    
-    await callback.message.edit_text(
-        "🗑️ **اختر القناة المراد حذفها:**",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("remove_ch_"))
-async def execute_remove_channel(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return
-    chat_id = int(callback.data.replace("remove_ch_", ""))
-    CHANNELS_DB.pop(chat_id, None)
-    await callback.answer(f"✅ تم حذف القناة بنجاح!", show_alert=True)
-    await admin_manage_channels(callback)
 
 @dp.callback_query(F.data == "admin_manage_scripts")
 async def admin_manage_scripts(callback: CallbackQuery):
@@ -305,7 +241,7 @@ async def execute_delete_map(callback: CallbackQuery):
 @dp.callback_query(F.data == "open_maps_menu")
 async def open_maps_menu(callback: CallbackQuery):
     if not await check_subscription(callback.from_user.id):
-        await callback.answer("⚠️ اشترك في القنوات أولاً!", show_alert=True)
+        await callback.answer("⚠️ اشترك في القناة أولاً!", show_alert=True)
         return
     kb = []
     for m_name in MAPS_DB.keys():
@@ -358,13 +294,24 @@ async def start_broadcast_callback(callback: CallbackQuery):
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: CallbackQuery):
     is_admin = (callback.from_user.id == ADMIN_ID)
-    await callback.message.edit_text("بوت السكربتات وتجاوز الروابط.", reply_markup=get_main_menu(is_admin))
+    about_text = (
+        "ℹ️ **حول البوت:**\n\n"
+        "هذا البوت مخصص لمساعدتك في:\n"
+        "1️⃣ **تجاوز الروابط المختصرة** واستخراج الروابط الأصلية بسهولة.\n"
+        "2️⃣ **توفير أقوى السكريبتات والماباعات** الخاصة بلعبة روبلوكس مرتبة ومنظمة داخل أقسام.\n\n"
+        "💡 إذا واجهتك أي مشكلة يمكنك التواصل مع الدعم الفني."
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
+    ])
+    await callback.message.edit_text(about_text, reply_markup=keyboard)
     await callback.answer()
 
 @dp.callback_query(F.data == "bypass_link")
 async def bypass_prompt(callback: CallbackQuery):
     if not await check_subscription(callback.from_user.id):
-        await callback.answer("⚠️ اشترك أولاً!", show_alert=True)
+        await callback.answer("⚠️ اشترك في القناة أولاً!", show_alert=True)
         return
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]])
     await callback.message.edit_text("⚡️ **أرسل الرابط المختصر الآن في المحادثة مباشرة:**", reply_markup=keyboard)
@@ -373,14 +320,17 @@ async def bypass_prompt(callback: CallbackQuery):
 @dp.callback_query(F.data == "supported_links")
 async def supported_links_callback(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]])
-    await callback.message.edit_text("📋 **الروابط المدعومة:**\n• `https://boostylink.com`", reply_markup=keyboard)
+    await callback.message.edit_text("📋 **الروابط المدعومة حالياً:**\n• `https://boostylink.com`\n• `https://link-center.net`\n• `https://bstshrt.com`", reply_markup=keyboard)
     await callback.answer()
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_menu(callback: CallbackQuery):
     user_id = callback.from_user.id
+    if MAINTENANCE_MODE and user_id != ADMIN_ID:
+        await callback.message.edit_text("🛠️ **البوت في وضع الصيانة حالياً.**")
+        return
     if not await check_subscription(user_id):
-        await callback.message.edit_text("⚠️ يجب عليك الاشتراك في القنوات أولاً!", reply_markup=get_sub_keyboard())
+        await callback.message.edit_text("⚠️ يجب عليك الاشتراك في قناة البوت أولاً!", reply_markup=get_sub_keyboard())
         return
     ADMIN_STATE.pop(user_id, None)
     is_admin = (user_id == ADMIN_ID)
@@ -391,30 +341,12 @@ async def back_menu(callback: CallbackQuery):
 async def handle_messages(message: Message):
     user_id = message.from_user.id
     
+    if MAINTENANCE_MODE and user_id != ADMIN_ID:
+        await message.answer("🛠️ **البوت في وضع الصيانة حالياً، لا يمكن استخدام الأوامر الآن.**", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)]]))
+        return
+
     if not await check_subscription(user_id):
-        await message.answer("⚠️ **يجب عليك الاشتراك في القنوات أولاً لاستخدام البوت!**", reply_markup=get_sub_keyboard())
-        return
-
-    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_channel_forward":
-        if message.forward_from_chat and message.forward_from_chat.type == "channel":
-            chat_id = message.forward_from_chat.id
-            title = message.forward_from_chat.title or "قناة الاشتراك"
-            ADMIN_STATE[user_id] = f"waiting_channel_link_{chat_id}_{title}"
-            await message.answer(
-                f"✅ تم التقاط القناة (`{title}`) والآيدي (`{chat_id}`).\n\nالخطوة الأخيرة: أرسل الآن **رابط القناة** (مثال: `https://t.me/your_channel`) لكي يظهر في الزر:"
-            )
-        else:
-            await message.answer("❌ هذه ليست رسالة محولة من قناة! يرجى تحويل رسالة من قناتك الخاصة التي أضفت البوت مشرفاً فيها.")
-        return
-
-    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_channel_link_"):
-        state_data = ADMIN_STATE.pop(user_id).replace("waiting_channel_link_", "")
-        chat_id_str, title = state_data.split("_", 1)
-        chat_id = int(chat_id_str)
-        ch_url = message.text.strip()
-        
-        CHANNELS_DB[chat_id] = {"url": ch_url, "title": title}
-        await message.answer(f"🎉 **تمت إضافة القناة بنجاح كاشتراك إجباري حقيقي!**\n\n📢 الاسم: `{title}`\n🆔 الآيدي: `{chat_id}`\n🔗 الرابط: `{ch_url}`", reply_markup=get_admin_menu())
+        await message.answer("⚠️ **يجب عليك الاشتراك في قناة البوت أولاً لاستخدامه!**", reply_markup=get_sub_keyboard())
         return
 
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_new_map_name":
@@ -441,10 +373,6 @@ async def handle_messages(message: Message):
             SCRIPTS_DB[map_name] = []
         SCRIPTS_DB[map_name].append({"title": script_title, "content": script_content})
         await message.answer(f"🎉 تم حفظ السكريبت في ماب `{map_name}` بنجاح!", reply_markup=get_admin_menu())
-        return
-
-    if MAINTENANCE_MODE and user_id != ADMIN_ID:
-        await message.answer("🛠️ البوت في صيانة حالياً.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)]]))
         return
 
     if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_broadcast":
@@ -490,7 +418,7 @@ async def handle_messages(message: Message):
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 البوت يعمل الآن بكفاءة وبدون تكرار...")
+    print("🤖 البوت يعمل الآن بكفاءة...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
