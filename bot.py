@@ -38,20 +38,27 @@ BUTTON_TEXTS = {
     "cancel": "❌ إلغاء"
 }
 
-MAPS_DB = {
-    "🌴 Town": {"type": "script_menu"},
-    " Adopt Me! 🐾": {"type": "script_menu"}
-}
+# قواميس التخزين الذكية (لن تحذف تعديلاتك أو حذفك عند تشغيل الكود)
+MAPS_DB = {}
+SCRIPTS_DB = {}
 
-SCRIPTS_DB = {
-    "🌴 Town": [
-        {"title": "سكريبت الطيران ✈️", "content": "loadstring(game:HttpGet('example.com/town1'))()"},
-        {"title": "سكريبت الفلوس 💰", "content": "loadstring(game:HttpGet('example.com/town2'))()"}
-    ],
-    " Adopt Me! 🐾": [
-        {"title": "سكريبت التصفير 🥚", "content": "loadstring(game:HttpGet('example.com/adoptme'))()"}
-    ]
-}
+# تعبئة القيم الافتراضية فقط لأول مرة إذا كان القاموس فارغاً تماماً
+def init_databases():
+    if not MAPS_DB:
+        MAPS_DB.update({
+            "🌴 Town": {"type": "script_menu"},
+            " Adopt Me! 🐾": {"type": "script_menu"}
+        })
+    if not SCRIPTS_DB:
+        SCRIPTS_DB.update({
+            "🌴 Town": [
+                {"title": "سكريبت الطيران ✈️", "content": "loadstring(game:HttpGet('example.com/town1'))()"},
+                {"title": "سكريبت الفلوس 💰", "content": "loadstring(game:HttpGet('example.com/town2'))()"}
+            ],
+            " Adopt Me! 🐾": [
+                {"title": "سكريبت التصفير 🥚", "content": "loadstring(game:HttpGet('example.com/adoptme'))()"}
+            ]
+        })
 
 USERS_SET = set()
 ADMIN_STATE = {}
@@ -276,6 +283,9 @@ async def open_maps_menu(callback: CallbackQuery):
     if not await check_subscription(callback.from_user.id):
         await callback.answer("⚠️ اشترك في القناة أولاً!", show_alert=True)
         return
+    if not MAPS_DB:
+        await callback.answer("⚠️ لا توجد ماباعات مضافة حالياً!", show_alert=True)
+        return
     kb = []
     for m_name in MAPS_DB.keys():
         kb.append([InlineKeyboardButton(text=m_name, callback_data=f"map_view_{m_name}")])
@@ -287,6 +297,11 @@ async def open_maps_menu(callback: CallbackQuery):
 async def map_view(callback: CallbackQuery):
     map_name = callback.data.replace("map_view_", "")
     scripts_list = SCRIPTS_DB.get(map_name, [])
+    if not scripts_list:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع للماباعات", callback_data="open_maps_menu")]])
+        await callback.message.edit_text(f"🎮 **ماب: {map_name}**\n\n⚠️ لا توجد سكريبتات في هذا الماب حالياً.", reply_markup=kb)
+        await callback.answer()
+        return
     kb = []
     for idx, script in enumerate(scripts_list):
         kb.append([InlineKeyboardButton(text=script["title"], callback_data=f"get_script_{map_name}_{idx}")])
@@ -389,7 +404,8 @@ async def handle_messages(message: Message):
     if user_id == ADMIN_ID and not is_testing and ADMIN_STATE.get(user_id) == "waiting_new_map_name":
         map_name = message.text.strip()
         MAPS_DB[map_name] = {"type": "script_menu"}
-        SCRIPTS_DB[map_name] = []
+        if map_name not in SCRIPTS_DB:
+            SCRIPTS_DB[map_name] = []
         ADMIN_STATE.pop(user_id, None)
         await message.answer(f"✅ تمت إضافة الماب: `{map_name}`", reply_markup=get_admin_menu())
         return
@@ -454,8 +470,10 @@ async def handle_messages(message: Message):
             await processing_msg.edit_text(f"❌ حدث خطأ:\n`{str(e)}`")
 
 async def main():
+    # تفعيل البيانات الافتراضية لأول مرة فقط دون مسح تعديلاتك اللاحقة
+    init_databases()
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 البوت يعمل الآن بكفاءة وبدون أي تعليق...")
+    print("🤖 البوت يعمل الآن بنظام الذاكرة الذكية للماباعات...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
