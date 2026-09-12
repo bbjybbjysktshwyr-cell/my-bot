@@ -1,5 +1,6 @@
 import telebot
 import requests
+import time
 
 TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
 bot = telebot.TeleBot(TOKEN)
@@ -17,6 +18,7 @@ def send_welcome(message):
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
     user_text = message.text.strip()
+    print(f"تم استلام رسالة: {user_text}")
     if user_text.startswith("http://") or user_text.startswith("https://"):
         msg = bot.reply_to(message, "⏳ جاري معالجة الرابط...")
         try:
@@ -28,4 +30,10 @@ def handle_all_messages(message):
     else:
         bot.reply_to(message, f"أهلاً بك! تم استلام رسالتك: {user_text}")
 
-bot.infinity_polling(skip_pending=True)
+# حلقة تشغيل آمنة تعيد الاتصال تلقائياً إذا توقف البوت
+while True:
+    try:
+        bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=30)
+    except Exception as e:
+        print(f"حدث انقطاع في الاتصال: {e}, جاري إعادة المحاولة خلال 5 ثوانٍ...")
+        time.sleep(5)
