@@ -11,7 +11,6 @@ TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
 ADMIN_ID = 6697426766
 SUPPORT_USER_URL = "https://t.me/AL_shz1"
 
-# قناة الاشتراك الإجباري الثابتة الخاصة بك
 REQUIRED_CHANNEL_USERNAME = "@scriptRoger"
 
 bot = Bot(token=TOKEN)
@@ -27,6 +26,8 @@ BUTTON_TEXTS = {
     "bypass_link": "⚡️ تجاوز رابط",
     "about": "ℹ️ حول البوت",
     "admin_panel": "⚙️ لوحة تحكم المدير",
+    "test_as_user": "👤 تجربة البوت كعضو",
+    "exit_test": "🔙 الخروج من التجربة والعودة للإدارة",
     "broadcast": "💬 إرسال إذاعة للكل",
     "manage_scripts": "📂 إدارة الماباعات والسكربتات",
     "maintenance": "🛠️ تفعيل وضع الصيانة",
@@ -55,10 +56,11 @@ SCRIPTS_DB = {
 USERS_SET = set()
 ADMIN_STATE = {}
 MAINTENANCE_MODE = False
+TESTING_USERS = set()  # مجموعة لتخزين المديرين الذين يفعلون وضع التجربة حالياً
 
 async def check_subscription(user_id: int) -> bool:
-    if user_id == ADMIN_ID:
-        return True
+    if user_id == ADMIN_ID and user_id not in TESTING_USERS:
+        return True  # المدير مستثنى ما لم يكن في وضع التجربة
     try:
         member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL_USERNAME, user_id=user_id)
         if member.status in ["left", "kicked"]:
@@ -68,21 +70,26 @@ async def check_subscription(user_id: int) -> bool:
         print(f"Error checking sub: {e}")
         return False
 
-def get_sub_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
+def get_sub_keyboard(is_testing=False):
+    keyboard = [
         [InlineKeyboardButton(text="📢 اشترك في قناة البوت", url="https://t.me/scriptRoger")],
         [InlineKeyboardButton(text="✅ لقد اشتركت، تحقق", callback_data="check_sub")]
-    ])
+    ]
+    if is_testing:
+        keyboard.append([InlineKeyboardButton(text=BUTTON_TEXTS["exit_test"], callback_data="exit_test_mode")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_main_menu(is_admin=False):
+def get_main_menu(is_admin=False, is_testing=False):
     keyboard = [
         [InlineKeyboardButton(text=BUTTON_TEXTS["supported_links"], callback_data="supported_links")],
         [InlineKeyboardButton(text=BUTTON_TEXTS["bypass_link"], callback_data="bypass_link")],
         [InlineKeyboardButton(text="📜 السكربتات والماباعات", callback_data="open_maps_menu")],
         [InlineKeyboardButton(text=BUTTON_TEXTS["about"], callback_data="about")]
     ]
-    if is_admin:
+    if is_admin and not is_testing:
         keyboard.append([InlineKeyboardButton(text=BUTTON_TEXTS["admin_panel"], callback_data="admin_panel")])
+    elif is_testing:
+        keyboard.append([InlineKeyboardButton(text=BUTTON_TEXTS["exit_test"], callback_data="exit_test_mode")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_admin_menu():
@@ -90,6 +97,7 @@ def get_admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=BUTTON_TEXTS["broadcast"], callback_data="start_broadcast")],
         [InlineKeyboardButton(text=BUTTON_TEXTS["manage_scripts"], callback_data="admin_manage_scripts")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["test_as_user"], callback_data="enter_test_mode")],
         [InlineKeyboardButton(text=m_text, callback_data="toggle_maintenance")],
         [InlineKeyboardButton(text=BUTTON_TEXTS["back_to_menu"], callback_data="back_to_menu")]
     ])
@@ -112,8 +120,13 @@ async def send_welcome(message: Message):
     user_id = message.from_user.id
     USERS_SET.add(user_id)
     
+    is_testing = (user_id in TESTING_USERS)
+    
     if MAINTENANCE_MODE and user_id != ADMIN_ID:
         await message.answer("🛠️ **البوت في وضع الصيانة حالياً، يرجى المحاولة لاحقاً.**", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)]]))
+        return
+    elif MAINTENANCE_MODE and user_id == ADMIN_ID and is_testing:
+        await message.answer("🛠️ **أنت الآن في وضع التجربة (الصيانة مفعلة وترى ما يراه المستخدم):**", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["exit_test"], callback_data="exit_test_mode")]]))
         return
 
     if not await check_subscription(user_id):
@@ -121,32 +134,67 @@ async def send_welcome(message: Message):
             "⚠️ **عذراً، يجب عليك الاشتراك في قناة البوت أولاً لتتمكن من استخدامه!**\n\n"
             "قناة البوت: @scriptRoger\n\n"
             "اشترك فيها ثم اضغط على زر التحقق أدناه:",
-            reply_markup=get_sub_keyboard()
+            reply_markup=get_sub_keyboard(is_testing)
         )
         return
 
-    is_admin = (user_id == ADMIN_ID)
+    is_admin = (user_id == ADMIN_ID and not is_testing)
     await message.answer(
         "مرحباً بك في بوت السكربتات وتجاوز الروابط. اختر ما تحتاجه من القائمة أدناه:",
-        reply_markup=get_main_menu(is_admin)
+        reply_markup=get_main_menu(is_admin, is_testing)
     )
+
+@dp.callback_query(F.data == "enter_test_mode")
+async def enter_test_mode(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    TESTING_USERS.add(ADMIN_ID)
+    is_testing = True
+    
+    # فحص ما إذا كان المدير مشتركاً بقناته أم لا في وضع التجربة
+    if not await check_subscription(ADMIN_ID):
+        await callback.message.edit_text(
+            "🧪 **تم تفعيل وضع التجربة كعضو:**\n\n"
+            "⚠️ بما أنك غير مشترك في القناة (أو تفحص البوت كعضو)، ظهرت لك رسالة الاشتراك الإجباري تماماً مثل أي مستخدم جديد:",
+            reply_markup=get_sub_keyboard(is_testing)
+        )
+    else:
+        await callback.message.edit_text(
+            "🧪 **أنت الآن تجرب البوت كعضو عادي:**\n\n"
+            "تم إخفاء صلاحيات المدير مؤقتاً لتختبر البوت بنفسك:",
+            reply_markup=get_main_menu(False, is_testing)
+        )
+    await callback.answer("تم الدخول لوضع التجربة بنجاح!", show_alert=True)
+
+@dp.callback_query(F.data == "exit_test_mode")
+async def exit_test_mode(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    TESTING_USERS.discard(ADMIN_ID)
+    status_text = "🟢 (يعمل بشكل طبيعي)" if not MAINTENANCE_MODE else "🔴 (وضع الصيانة مفعل)"
+    await callback.message.edit_text(
+        f"⚙️ **لوحة تحكم المدير (تم العودة لوضع الإدارة):**\n\nحالة البوت: {status_text}\n\nتحكم في إعدادات البوت من الأزرار أدناه:",
+        reply_markup=get_admin_menu()
+    )
+    await callback.answer("تم الخروج من وضع التجربة والعودة لصلاحيات المدير.", show_alert=True)
 
 @dp.callback_query(F.data == "check_sub")
 async def verify_subscription(callback: CallbackQuery):
     user_id = callback.from_user.id
+    is_testing = (user_id in TESTING_USERS)
     
     if await check_subscription(user_id):
-        is_admin = (user_id == ADMIN_ID)
+        is_admin = (user_id == ADMIN_ID and not is_testing)
         try:
             await callback.message.edit_text(
                 "✅ شكراً لاشتراكك! تم تفعيل البوت بنجاح:",
-                reply_markup=get_main_menu(is_admin)
+                reply_markup=get_main_menu(is_admin, is_testing)
             )
         except Exception:
             await callback.message.delete()
             await callback.message.answer(
                 "✅ شكراً لاشتراكك! تم تفعيل البوت بنجاح:",
-                reply_markup=get_main_menu(is_admin)
+                reply_markup=get_main_menu(is_admin, is_testing)
             )
         await callback.answer()
     else:
@@ -293,7 +341,10 @@ async def start_broadcast_callback(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: CallbackQuery):
-    is_admin = (callback.from_user.id == ADMIN_ID)
+    user_id = callback.from_user.id
+    is_testing = (user_id in TESTING_USERS)
+    is_admin = (user_id == ADMIN_ID and not is_testing)
+    
     about_text = (
         "ℹ️ **حول البوت:**\n\n"
         "هذا البوت مخصص لمساعدتك في:\n"
@@ -326,30 +377,38 @@ async def supported_links_callback(callback: CallbackQuery):
 @dp.callback_query(F.data == "back_to_menu")
 async def back_menu(callback: CallbackQuery):
     user_id = callback.from_user.id
-    if MAINTENANCE_MODE and user_id != ADMIN_ID:
+    is_testing = (user_id in TESTING_USERS)
+    
+    if MAINTENANCE_MODE and user_id != ADMIN_ID and not is_testing:
         await callback.message.edit_text("🛠️ **البوت في وضع الصيانة حالياً.**")
         return
-    if not await check_subscription(user_id):
-        await callback.message.edit_text("⚠️ يجب عليك الاشتراك في قناة البوت أولاً!", reply_markup=get_sub_keyboard())
+    if MAINTENANCE_MODE and user_id == ADMIN_ID and is_testing:
+        await callback.message.edit_text("🛠️ **البوت في وضع الصيانة حالياً (وضع التجربة):**", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["exit_test"], callback_data="exit_test_mode")]]))
         return
+        
+    if not await check_subscription(user_id):
+        await callback.message.edit_text("⚠️ يجب عليك الاشتراك في قناة البوت أولاً!", reply_markup=get_sub_keyboard(is_testing))
+        return
+        
     ADMIN_STATE.pop(user_id, None)
-    is_admin = (user_id == ADMIN_ID)
-    await callback.message.edit_text("مرحباً بك من جديد في القائمة الرئيسية:", reply_markup=get_main_menu(is_admin))
+    is_admin = (user_id == ADMIN_ID and not is_testing)
+    await callback.message.edit_text("مرحباً بك من جديد في القائمة الرئيسية:", reply_markup=get_main_menu(is_admin, is_testing))
     await callback.answer()
 
 @dp.message(F.text & ~F.text.startswith("/"))
 async def handle_messages(message: Message):
     user_id = message.from_user.id
+    is_testing = (user_id in TESTING_USERS)
     
-    if MAINTENANCE_MODE and user_id != ADMIN_ID:
+    if MAINTENANCE_MODE and (user_id != ADMIN_ID or is_testing):
         await message.answer("🛠️ **البوت في وضع الصيانة حالياً، لا يمكن استخدام الأوامر الآن.**", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)]]))
         return
 
     if not await check_subscription(user_id):
-        await message.answer("⚠️ **يجب عليك الاشتراك في قناة البوت أولاً لاستخدامه!**", reply_markup=get_sub_keyboard())
+        await message.answer("⚠️ **يجب عليك الاشتراك في قناة البوت أولاً لاستخدامه!**", reply_markup=get_sub_keyboard(is_testing))
         return
 
-    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_new_map_name":
+    if user_id == ADMIN_ID and not is_testing and ADMIN_STATE.get(user_id) == "waiting_new_map_name":
         map_name = message.text.strip()
         MAPS_DB[map_name] = {"type": "script_menu"}
         SCRIPTS_DB[map_name] = []
@@ -357,14 +416,14 @@ async def handle_messages(message: Message):
         await message.answer(f"✅ تمت إضافة الماب: `{map_name}`", reply_markup=get_admin_menu())
         return
 
-    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_script_title_"):
+    if user_id == ADMIN_ID and not is_testing and ADMIN_STATE.get(user_id, "").startswith("waiting_script_title_"):
         map_name = ADMIN_STATE.pop(user_id).replace("waiting_script_title_", "")
         script_title = message.text.strip()
         ADMIN_STATE[user_id] = f"waiting_script_content_{map_name}_{script_title}"
         await message.answer(f"🔗 أرسل الآن **محتوى السكريبت**:")
         return
 
-    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id, "").startswith("waiting_script_content_"):
+    if user_id == ADMIN_ID and not is_testing and ADMIN_STATE.get(user_id, "").startswith("waiting_script_content_"):
         parts = ADMIN_STATE.pop(user_id).replace("waiting_script_content_", "").split("_", 1)
         map_name = parts[0]
         script_title = parts[1]
@@ -375,7 +434,7 @@ async def handle_messages(message: Message):
         await message.answer(f"🎉 تم حفظ السكريبت في ماب `{map_name}` بنجاح!", reply_markup=get_admin_menu())
         return
 
-    if user_id == ADMIN_ID and ADMIN_STATE.get(user_id) == "waiting_broadcast":
+    if user_id == ADMIN_ID and not is_testing and ADMIN_STATE.get(user_id) == "waiting_broadcast":
         ADMIN_STATE.pop(user_id, None)
         sent_count = 0
         status_msg = await message.answer("⏳ جاري الإذاعة...")
@@ -418,7 +477,7 @@ async def handle_messages(message: Message):
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 البوت يعمل الآن بكفاءة...")
+    print("🤖 البوت يعمل الآن بكفاءة وبوضع التجربة الجديد...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
