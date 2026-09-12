@@ -1,6 +1,6 @@
 import telebot
 
-TOKEN = "ضع_التوكن_هنا"
+TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
 bot = telebot.TeleBot(TOKEN)
 
 print("البوت بدأ بالعمل وجاري الاتصال بـ Telegram...")
