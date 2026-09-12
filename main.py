@@ -70,28 +70,17 @@ class Timer:
         return f"Timer({self.total():.1f}s total, {len(self.phases)} phases)"
 
 
-#验证码
-# 上游已取消图形验证码环节:step 的 captcha 字段不校验(null/任意值均可),
-# 旧版 captcha 服务已换成 orbit 类型、旧识别器失效,这里不再有识别步骤。
-# The far end dropped the picture captcha (the step captcha field is not
-# checked), so there is no recognition step any more.
-
-
 #Metadata->Service解析
 def resolve_service(ticket, session=None, verbose=True):
-    #从metadata获取service及checkpointCount（决定需要多少轮/步），返回 (service, checkpointCount)
     svc, cp, valid, reason = resolve_meta(ticket, session=session, verbose=verbose)
     return svc, cp
 
 
 def resolve_meta(ticket, session=None, verbose=True):
-    """一次 metadata 调用同时得到 (service, checkpointCount, valid, invalid_reason)
-    """
     cp = None
     try:
         meta = AUTH.get_session_metadata(ticket, session=session)
         if isinstance(meta, dict):
-            # 明确的无效/过期判定
             if meta.get('success') is False and not meta.get('transient'):
                 msg = str(meta.get('message') or meta.get('error') or '').lower()
                 if any(m in msg for m in AUTH.INVALID_MARKERS):
@@ -121,7 +110,6 @@ def resolve_meta(ticket, session=None, verbose=True):
 
 #Step推进
 def throttled(r):
-    # 判断 step 是否被服务器限流（"finishing checkpoints too fast" 等）
     if not isinstance(r, dict):
         return False
     msg = ' '.join(str(r.get(k, '')) for k in ('message', 'error', 'detail')).lower()
@@ -130,7 +118,6 @@ def throttled(r):
 
 def do_step_with_retry(ticket, service=None, session=None, verbose=True, timer=None,
                        gap_state=None, overlap_poll=False, poll_session=None):
-    #执行step失败时尝试回退 遇到限流则退避后直接重试
     services_to_try = []
     if service is not None:
         services_to_try.append(service)
@@ -141,7 +128,6 @@ def do_step_with_retry(ticket, service=None, session=None, verbose=True, timer=N
     if timer:
         timer.start('step')
 
-    # 主动保证本链相邻step的最小间隔 避免触发限流
     if gap_state is not None and gap_state.get('ts'):
         gap = time.time() - gap_state['ts']
         if gap < MIN_STEP_GAP:
@@ -153,7 +139,6 @@ def do_step_with_retry(ticket, service=None, session=None, verbose=True, timer=N
     overlap_thread = None
 
     def overlap_poll_worker():
-        #step发出后稍等一下再开始轮询,避免过早的无谓请求
         time.sleep(POLL_OVERLAP_DELAY)
         sess = poll_session if poll_session is not None else session
         for _ in range(POLL_MAX_ATTEMPTS):
@@ -211,7 +196,6 @@ def do_step_with_retry(ticket, service=None, session=None, verbose=True, timer=N
 
 #Key提取
 def check_key_in_response(ticket, session=None, verbose=True, timer=None):
-    #检查会话中是否已有key
     try:
         if timer:
             timer.start('poll')
@@ -233,7 +217,6 @@ def check_key_in_response(ticket, session=None, verbose=True, timer=None):
 
 
 def poll_for_key(ticket, session=None, max_attempts=3, interval=0, verbose=True, timer=None):
-    #轮询等待key：首查立即，之后每次间隔 interval 秒
     for i in range(max_attempts):
         key = check_key_in_response(ticket, session=session, verbose=verbose, timer=timer)
         if key:
@@ -245,7 +228,6 @@ def poll_for_key(ticket, session=None, max_attempts=3, interval=0, verbose=True,
 
 #主循环
 def solve_chain(ticket, verbose=True, max_rounds=MAX_ROUNDS, session=None):
-    #完整链路ticket->captcha->step->decode->repeat->key
     if session is None:
         session = AUTH.create_session()
     current_ticket = ticket
@@ -289,7 +271,6 @@ def solve_chain(ticket, verbose=True, max_rounds=MAX_ROUNDS, session=None):
                     svc, cpc, mvalid, mreason = meta_future.result(timeout=6)
                     current_service = svc
                     if not mvalid:
-                        # 明确无效/过期链接
                         invalid_reason[0] = mreason
                         last_exit[0] = 'invalid-link'
                         timer.invalid_reason = mreason
@@ -306,7 +287,6 @@ def solve_chain(ticket, verbose=True, max_rounds=MAX_ROUNDS, session=None):
         if timer:
             timer.stop()
 
-        # 按 checkpointCount 动态延长轮数
         if cpc is not None:
             need = cpc + 1
             if need > round_cap:
@@ -317,7 +297,6 @@ def solve_chain(ticket, verbose=True, max_rounds=MAX_ROUNDS, session=None):
         if current_service is not None and verbose:
             print(f'  [service] metadata: {current_service}', flush=True)
 
-        # 对最后一步开启step/poll 重叠 两个串行RTT压成一个
         last_step = round_idx > 0
         service, resp, overlap = do_step_with_retry(
             current_ticket,
@@ -341,7 +320,6 @@ def solve_chain(ticket, verbose=True, max_rounds=MAX_ROUNDS, session=None):
             continue
 
         current_service = service
-        #提取URL
         url = (resp.get('data') or {}).get('url', '')
         if not url:
             if verbose:
@@ -367,7 +345,6 @@ def solve_chain(ticket, verbose=True, max_rounds=MAX_ROUNDS, session=None):
             round_idx += 1
             continue
 
-        #解码r=参数->下一张ticket
         callback = AUTH.decode_callback_url(url)
         if callback:
             next_ticket = AUTH.extract_ticket_from_callback(callback)
@@ -378,7 +355,6 @@ def solve_chain(ticket, verbose=True, max_rounds=MAX_ROUNDS, session=None):
                 round_idx += 1
                 continue
 
-        #无r=回调->lootlabs 链接轮询 key
         if verbose:
             print(f'  [info] 无 r= 回调, 尝试轮询 key...', flush=True)
         key = check_key_in_response(current_ticket, session=session, verbose=verbose, timer=timer)
@@ -387,7 +363,6 @@ def solve_chain(ticket, verbose=True, max_rounds=MAX_ROUNDS, session=None):
         last_exit[0] = 'no-callback-no-key'
         break
 
-    #最后检查
     key = check_key_in_response(current_ticket, session=session, verbose=verbose, timer=timer)
     if key:
         return key, timer
@@ -401,52 +376,28 @@ def solve_chain(ticket, verbose=True, max_rounds=MAX_ROUNDS, session=None):
 def main():
     ap = argparse.ArgumentParser(
         description='Delta自动求解器',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''示例:
-  %(prog)s "https://auth.platorelay.com/a?d=<ticket>"
-  %(prog)s "<raw_ticket>"
-  %(prog)s ticket.txt
-  %(prog)s --generate 3
-        '''
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument('target', nargs='?', help='auth URL / ticket / 文件路径')
-    ap.add_argument('--generate', '-g', type=int, default=0,
-                    help='通过 Platoboost API 生成 N 条测试链接')
-    ap.add_argument('--quiet', '-q', action='store_true',
-                    help='静默模式 (只输出结果)')
-    ap.add_argument('--max-rounds', type=int, default=MAX_ROUNDS,
-                    help=f'最大 round 数 (默认 {MAX_ROUNDS})')
-    ap.add_argument('--no-auto', action='store_true',
-                    help='只生成链接, 不求解')
+    ap.add_argument('--generate', '-g', type=int, default=0)
+    ap.add_argument('--quiet', '-q', action='store_true')
+    ap.add_argument('--max-rounds', type=int, default=MAX_ROUNDS)
+    ap.add_argument('--no-auto', action='store_true')
     args = ap.parse_args()
 
     verbose = not args.quiet
-
-    # 后台盯上游客户端版本：启动刷一次，之后每小时一次。
-    # Watch the far end's client version in the background: once at startup,
-    # then hourly.
     AUTH.start_version_watcher()
 
     tickets = []
-    gen_start = time.time()
-
     if args.generate > 0:
-        if verbose:
-            print(f'[*] 生成 {args.generate} 条链接...', flush=True)
         try:
             urls = LG.batch_links(args.generate)
             tickets = [AUTH.extract_ticket(u) for u in urls]
-            if verbose:
-                print(f'[*] 成功获取 {len(tickets)} 条 ticket', flush=True)
-        except Exception as e:
-            print(f'[-] 生成链接失败: {e}', file=sys.stderr, flush=True)
+        except Exception:
             sys.exit(1)
     elif args.target:
-        # 命令行参数才允许从文件读 ticket（一行一个那种）。
-        # HTTP 接口走的是 extract_ticket，不读文件。
         tickets.append(AUTH.extract_ticket_from_arg(args.target))
     else:
-        ap.print_help()
         sys.exit(1)
 
     if args.no_auto:
@@ -454,46 +405,13 @@ def main():
             print(f'https://auth.platorelay.com/a?d={t}')
         return
 
-    #逐条求解
-    results = []
-    for i, ticket in enumerate(tickets):
-        t0 = time.time()
-        key, timer = solve_chain(ticket, verbose=verbose, max_rounds=args.max_rounds,
-                                 session=None)
-        dt = time.time() - t0
-        results.append((i, key, timer, dt))
-
+    # التعديل هنا: طباعة رسالة تم تجاوز الرابط وإظهار المفتاح فقط
+    for ticket in tickets:
+        key, timer = solve_chain(ticket, verbose=verbose, max_rounds=args.max_rounds, session=None)
         if key:
-            print(f'\n{"=" * 60}', flush=True)
-            print(f'[+] DELTA KEY #{i + 1}: {key}', flush=True)
-            print(f'[+] 耗时: {dt:.1f}s', flush=True)
-            print(f'[+] 阶段明细:')
-            print(timer.summary())
-            print(f'{"=" * 60}', flush=True)
-        elif verbose:
-            print(f'\n[-] 链接 {i + 1}: 未获取到 key', flush=True)
-            if timer.total() > 0:
-                print(f'[-] 耗时: {dt:.1f}s')
-                print(f'[-] 阶段明细:')
-                print(timer.summary())
-
-    #汇总
-    total_elapsed = time.time() - gen_start
-    success_count = sum(1 for _, key, _, _ in results if key)
-    total_timer = Timer()
-    for _, _, timer, _ in results:
-        for name, secs in timer.phases.items():
-            total_timer.add(name, secs)
-
-    print(f'\n{"=" * 60}', flush=True)
-    print(f'[+] 汇总: {success_count}/{len(tickets)} 成功', flush=True)
-    print(f'[+] 总耗时: {total_elapsed:.1f}s', flush=True)
-    if len(tickets) > 0:
-        print(f'[+] 平均每链接: {total_elapsed / len(tickets):.1f}s', flush=True)
-    if total_timer.total() > 0:
-        print(f'[+] 总阶段明细:')
-        print(total_timer.summary())
-    print(f'{"=" * 60}', flush=True)
+            print(f"\nتم تجاوز الرابط بنجاح ✅\nالمفتاح: {key}")
+        else:
+            print("\nفشل في تجاوز الرابط أو جلب المفتاح ❌")
 
 
 if __name__ == '__main__':
