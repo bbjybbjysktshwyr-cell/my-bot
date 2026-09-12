@@ -120,7 +120,6 @@ async def send_welcome(message: Message):
     user_id = message.from_user.id
     USERS_SET.add(user_id)
     
-    # عند إرسال ستارت يتم إلغاء وضع التجربة تلقائياً لمنع أي تعليق
     if user_id == ADMIN_ID and user_id in TESTING_USERS:
         TESTING_USERS.discard(ADMIN_ID)
 
@@ -178,17 +177,10 @@ async def verify_subscription(callback: CallbackQuery):
     
     if await check_subscription(user_id):
         is_admin = (user_id == ADMIN_ID and not is_testing)
-        try:
-            await callback.message.edit_text(
-                "✅ شكراً لاشتراكك! تم تفعيل البوت بنجاح:",
-                reply_markup=get_main_menu(is_admin, is_testing)
-            )
-        except Exception:
-            await callback.message.delete()
-            await callback.message.answer(
-                "✅ شكراً لاشتراكك! تم تفعيل البوت بنجاح:",
-                reply_markup=get_main_menu(is_admin, is_testing)
-            )
+        await callback.message.edit_text(
+            "✅ شكراً لاشتراكك! تم تفعيل البوت بنجاح:",
+            reply_markup=get_main_menu(is_admin, is_testing)
+        )
         await callback.answer()
     else:
         await callback.answer("❌ لم تقم بالاشتراك في القناة بعد، يرجى الاشتراك ثم المحاولة مرة أخرى!", show_alert=True)
@@ -334,9 +326,6 @@ async def start_broadcast_callback(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    is_testing = (user_id in TESTING_USERS)
-    
     about_text = (
         "ℹ️ **حول البوت:**\n\n"
         "هذا البوت مخصص لمساعدتك في:\n"
