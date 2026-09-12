@@ -100,7 +100,7 @@ def get_main_menu(is_admin=False, is_testing=False):
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_admin_menu():
-m_text = BUTTON_TEXTS["maintenance_off"] if MAINTENANCE_MODE else BUTTON_TEXTS["maintenance"]
+    m_text = BUTTON_TEXTS["maintenance_off"] if MAINTENANCE_MODE else BUTTON_TEXTS["maintenance"]
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=BUTTON_TEXTS["broadcast"], callback_data="start_broadcast")],
         [InlineKeyboardButton(text=BUTTON_TEXTS["manage_scripts"], callback_data="admin_manage_scripts")],
@@ -185,7 +185,7 @@ async def verify_subscription(callback: CallbackQuery):
     if await check_subscription(user_id):
         is_admin = (user_id == ADMIN_ID and not is_testing)
         await callback.message.edit_text(
-"✅ شكراً لاشتراكك! تم تفعيل البوت بنجاح:",
+            "✅ شكراً لاشتراكك! تم تفعيل البوت بنجاح:",
             reply_markup=get_main_menu(is_admin, is_testing)
         )
         await callback.answer()
@@ -263,7 +263,7 @@ async def delete_map_prompt(callback: CallbackQuery):
         return
     kb = []
     for m_name in MAPS_DB.keys(): 
-kb.append([InlineKeyboardButton(text=f"🗑️ حذف: {m_name}", callback_data=f"del_map_{m_name}")])
+        kb.append([InlineKeyboardButton(text=f"🗑️ حذف: {m_name}", callback_data=f"del_map_{m_name}")])
     kb.append([InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_manage_scripts")])
     await callback.message.edit_text("🗑️ اختر الماب للحذف:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
     await callback.answer()
@@ -338,6 +338,7 @@ async def start_broadcast_callback(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_panel")]])
     await callback.message.edit_text("📢 أرسل رسالة الإذاعة الآن:", reply_markup=keyboard)
     await callback.answer()
+
 @dp.callback_query(F.data == "about")
 async def about_callback(callback: CallbackQuery):
     about_text = (
@@ -415,7 +416,8 @@ async def handle_messages(message: Message):
         ADMIN_STATE[user_id] = f"waiting_script_content_{map_name}_{script_title}"
         await message.answer(f"🔗 أرسل الآن محتوى السكريبت:")
         return
-if user_id == ADMIN_ID and not is_testing and ADMIN_STATE.get(user_id, "").startswith("waiting_script_content_"):
+
+    if user_id == ADMIN_ID and not is_testing and ADMIN_STATE.get(user_id, "").startswith("waiting_script_content_"):
         parts = ADMIN_STATE.pop(user_id).replace("waiting_script_content_", "").split("_", 1)
         map_name = parts[0]
         script_title = parts[1]
@@ -468,11 +470,10 @@ if user_id == ADMIN_ID and not is_testing and ADMIN_STATE.get(user_id, "").start
             await processing_msg.edit_text(f"❌ حدث خطأ:\n{str(e)}")
 
 async def main():
-    # تفعيل البيانات الافتراضية لأول مرة فقط دون مسح تعديلاتك اللاحقة
     init_databases()
     await bot.delete_webhook(drop_pending_updates=True)
     print("🤖 البوت يعمل الآن بنظام الذاكرة الذكية للماباعات...")
     await dp.start_polling(bot)
 
-if name == "main":
+if __name__ == "__main__":
     asyncio.run(main())
