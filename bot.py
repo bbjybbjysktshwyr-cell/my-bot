@@ -27,7 +27,7 @@ BUTTON_TEXTS = {
     "about": "ℹ️ حول البوت",
     "admin_panel": "⚙️ لوحة تحكم المدير",
     "test_as_user": "👤 تجربة البوت كعضو",
-    "exit_test": "🔙 الخروج من التجربة والعودة للإدارة",
+    "exit_test": "🔙 الخروج من التجربة",
     "broadcast": "💬 إرسال إذاعة للكل",
     "manage_scripts": "📂 إدارة الماباعات والسكربتات",
     "maintenance": "🛠️ تفعيل وضع الصيانة",
@@ -56,11 +56,11 @@ SCRIPTS_DB = {
 USERS_SET = set()
 ADMIN_STATE = {}
 MAINTENANCE_MODE = False
-TESTING_USERS = set()  # مجموعة لتخزين المديرين الذين يفعلون وضع التجربة حالياً
+TESTING_USERS = set()
 
 async def check_subscription(user_id: int) -> bool:
     if user_id == ADMIN_ID and user_id not in TESTING_USERS:
-        return True  # المدير مستثنى ما لم يكن في وضع التجربة
+        return True
     try:
         member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL_USERNAME, user_id=user_id)
         if member.status in ["left", "kicked"]:
@@ -120,13 +120,14 @@ async def send_welcome(message: Message):
     user_id = message.from_user.id
     USERS_SET.add(user_id)
     
-    is_testing = (user_id in TESTING_USERS)
+    # عند إرسال ستارت يتم إلغاء وضع التجربة تلقائياً لمنع أي تعليق
+    if user_id == ADMIN_ID and user_id in TESTING_USERS:
+        TESTING_USERS.discard(ADMIN_ID)
+
+    is_testing = False
     
     if MAINTENANCE_MODE and user_id != ADMIN_ID:
         await message.answer("🛠️ **البوت في وضع الصيانة حالياً، يرجى المحاولة لاحقاً.**", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["support"], url=SUPPORT_USER_URL)]]))
-        return
-    elif MAINTENANCE_MODE and user_id == ADMIN_ID and is_testing:
-        await message.answer("🛠️ **أنت الآن في وضع التجربة (الصيانة مفعلة وترى ما يراه المستخدم):**", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["exit_test"], callback_data="exit_test_mode")]]))
         return
 
     if not await check_subscription(user_id):
@@ -138,7 +139,7 @@ async def send_welcome(message: Message):
         )
         return
 
-    is_admin = (user_id == ADMIN_ID and not is_testing)
+    is_admin = (user_id == ADMIN_ID)
     await message.answer(
         "مرحباً بك في بوت السكربتات وتجاوز الروابط. اختر ما تحتاجه من القائمة أدناه:",
         reply_markup=get_main_menu(is_admin, is_testing)
@@ -151,19 +152,11 @@ async def enter_test_mode(callback: CallbackQuery):
     TESTING_USERS.add(ADMIN_ID)
     is_testing = True
     
-    # فحص ما إذا كان المدير مشتركاً بقناته أم لا في وضع التجربة
-    if not await check_subscription(ADMIN_ID):
-        await callback.message.edit_text(
-            "🧪 **تم تفعيل وضع التجربة كعضو:**\n\n"
-            "⚠️ بما أنك غير مشترك في القناة (أو تفحص البوت كعضو)، ظهرت لك رسالة الاشتراك الإجباري تماماً مثل أي مستخدم جديد:",
-            reply_markup=get_sub_keyboard(is_testing)
-        )
-    else:
-        await callback.message.edit_text(
-            "🧪 **أنت الآن تجرب البوت كعضو عادي:**\n\n"
-            "تم إخفاء صلاحيات المدير مؤقتاً لتختبر البوت بنفسك:",
-            reply_markup=get_main_menu(False, is_testing)
-        )
+    await callback.message.edit_text(
+        "🧪 **أنت الآن تجرب البوت كعضو عادي:**\n\n"
+        "تم إخفاء لوحة التحكم وصلاحيات المدير مؤقتاً لتختبر البوت بنفسك:",
+        reply_markup=get_main_menu(False, is_testing)
+    )
     await callback.answer("تم الدخول لوضع التجربة بنجاح!", show_alert=True)
 
 @dp.callback_query(F.data == "exit_test_mode")
@@ -202,7 +195,7 @@ async def verify_subscription(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "admin_panel")
 async def admin_panel_callback(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id != ADMIN_ID or callback.from_user.id in TESTING_USERS:
         await callback.answer("للمدير فقط!", show_alert=True)
         return
     status_text = "🟢 (يعمل بشكل طبيعي)" if not MAINTENANCE_MODE else "🔴 (وضع الصيانة مفعل)"
@@ -214,7 +207,7 @@ async def admin_panel_callback(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "admin_manage_scripts")
 async def admin_manage_scripts(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id != ADMIN_ID or callback.from_user.id in TESTING_USERS:
         return
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ إضافة ماب جديد", callback_data="add_map_prompt")],
@@ -230,7 +223,7 @@ async def admin_manage_scripts(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "add_map_prompt")
 async def add_map_prompt(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id != ADMIN_ID or callback.from_user.id in TESTING_USERS:
         return
     ADMIN_STATE[callback.from_user.id] = "waiting_new_map_name"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -241,7 +234,7 @@ async def add_map_prompt(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "add_script_prompt")
 async def add_script_prompt(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id != ADMIN_ID or callback.from_user.id in TESTING_USERS:
         return
     if not MAPS_DB:
         await callback.answer("⚠️ يجب إضافة ماب أولاً!", show_alert=True)
@@ -255,7 +248,7 @@ async def add_script_prompt(callback: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("select_map_for_script_"))
 async def select_map_for_script(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id != ADMIN_ID or callback.from_user.id in TESTING_USERS:
         return
     map_name = callback.data.replace("select_map_for_script_", "")
     ADMIN_STATE[callback.from_user.id] = f"waiting_script_title_{map_name}"
@@ -264,7 +257,7 @@ async def select_map_for_script(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "delete_map_prompt")
 async def delete_map_prompt(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id != ADMIN_ID or callback.from_user.id in TESTING_USERS:
         return
     if not MAPS_DB:
         await callback.answer("⚠️ لا توجد ماباعات!", show_alert=True)
@@ -278,7 +271,7 @@ async def delete_map_prompt(callback: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("del_map_"))
 async def execute_delete_map(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id != ADMIN_ID or callback.from_user.id in TESTING_USERS:
         return
     map_name = callback.data.replace("del_map_", "")
     MAPS_DB.pop(map_name, None)
@@ -322,7 +315,7 @@ async def get_script_content(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "toggle_maintenance")
 async def toggle_maintenance_callback(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id != ADMIN_ID or callback.from_user.id in TESTING_USERS:
         return
     global MAINTENANCE_MODE
     MAINTENANCE_MODE = not MAINTENANCE_MODE
@@ -332,7 +325,7 @@ async def toggle_maintenance_callback(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "start_broadcast")
 async def start_broadcast_callback(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id != ADMIN_ID or callback.from_user.id in TESTING_USERS:
         return
     ADMIN_STATE[callback.from_user.id] = "waiting_broadcast"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["cancel"], callback_data="admin_panel")]])
@@ -343,7 +336,6 @@ async def start_broadcast_callback(callback: CallbackQuery):
 async def about_callback(callback: CallbackQuery):
     user_id = callback.from_user.id
     is_testing = (user_id in TESTING_USERS)
-    is_admin = (user_id == ADMIN_ID and not is_testing)
     
     about_text = (
         "ℹ️ **حول البوت:**\n\n"
@@ -381,9 +373,6 @@ async def back_menu(callback: CallbackQuery):
     
     if MAINTENANCE_MODE and user_id != ADMIN_ID and not is_testing:
         await callback.message.edit_text("🛠️ **البوت في وضع الصيانة حالياً.**")
-        return
-    if MAINTENANCE_MODE and user_id == ADMIN_ID and is_testing:
-        await callback.message.edit_text("🛠️ **البوت في وضع الصيانة حالياً (وضع التجربة):**", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BUTTON_TEXTS["exit_test"], callback_data="exit_test_mode")]]))
         return
         
     if not await check_subscription(user_id):
@@ -477,7 +466,7 @@ async def handle_messages(message: Message):
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 البوت يعمل الآن بكفاءة وبوضع التجربة الجديد...")
+    print("🤖 البوت يعمل الآن بكفاءة وبدون أي تعليق...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
