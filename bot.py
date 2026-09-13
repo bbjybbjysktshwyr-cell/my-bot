@@ -10,11 +10,9 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     
     if "platorelay.com" in user_text or "d=" in user_text:
-        # إرسال رسالة تنبيهية بأن العمل جارٍ
-        status_msg = await update.message.reply_text("⏳ جاري حل الرابط واستخراج الكود، انتظر قليلاً...")
+        status_msg = await update.message.reply_text("⏳ جارٍ حل الرابط واستخراج الكود، قد يستغرق ذلك دقيقة تقريباً...")
         
         try:
-            # تشغيل main.py واستخراج النتيجة
             process = await asyncio.create_subprocess_exec(
                 "python", "main.py", user_text,
                 stdout=subprocess.PIPE,
@@ -25,7 +23,6 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output_text = stdout.decode('utf-8')
             
             if process.returncode == 0:
-                # إرسال الكود المستخرج كرسالة جديدة تماماً لتجنب مشاكل التعديل
                 await update.message.reply_text(f"تم بنجاح! 🎯\n\n{output_text}")
             else:
                 error_output = stderr.decode('utf-8') or output_text
@@ -37,7 +34,16 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("يرجى إرسال رابط دلتا صحيح.")
 
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    # رفع مهلة الاتصال لكي يتحمل البوت الوقت الذي تستغرقه الأداة في الحل
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .connect_timeout(30)
+        .read_timeout(30)
+        .write_timeout(30)
+        .build()
+    )
+    
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_link))
     print("Bot is running and waiting for links...")
     app.run_polling()
