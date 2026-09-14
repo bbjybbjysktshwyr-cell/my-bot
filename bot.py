@@ -91,34 +91,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ شكراً لك! تم إضافة تقييمك بنجاح.", reply_markup=get_main_keyboard(lang))
         return
 
-    if user_text in ["🔗 تجاوز رابط", "🔗 Bypass Link"]:
+    if "تجاوز رابط" in user_text or "Bypass Link" in user_text:
         user_states[user_id] = "waiting_for_bypass_link"
         save_data()
         msg = "Send your link now:" if lang == "en" else "أرسل الرابط الآن:"
         await update.message.reply_text(msg)
         return
         
-    elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
+    elif "المواقع المدعومة" in user_text or "Supported Sites" in user_text:
         user_states.pop(user_id, None)
         save_data()
         msg = "Supported sites:\n- linkvertise.com" if lang == "en" else "المواقع المدعومة حالياً:\n- linkvertise.com"
         await update.message.reply_text(msg, reply_markup=get_main_keyboard(lang))
         return
         
-    elif user_text in ["📖 شرح البوت", "📖 Bot Guide"]:
+    elif "شرح البوت" in user_text or "Bot Guide" in user_text:
         user_states.pop(user_id, None)
         save_data()
         msg = "Click 'Bypass Link' first, then send your link." if lang == "en" else "اضغط على زر (تجاوز رابط) أولاً، ثم أرسل الرابط ليتم تجاوزه."
         await update.message.reply_text(msg, reply_markup=get_main_keyboard(lang))
         return
         
-    elif user_text in ["⭐ تقييم البوت", "⭐ Bot Ratings"]:
+    elif "تقييم البوت" in user_text or "Bot Ratings" in user_text:
         user_states.pop(user_id, None)
         save_data()
         await show_ratings_page(update, context, 0, lang, edit=False)
         return
         
-    elif user_text in ["🌍 تغيير اللغة", "🌍 Change Language"]:
+    elif "تغيير اللغة" in user_text or "Change Language" in user_text:
         user_states.pop(user_id, None)
         save_data()
         lang_text = "Please choose your language 👇" if lang == "en" else "👇 الرجاء اختيار اللغة 👇"
@@ -151,7 +151,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 loop = asyncio.get_running_loop()
                 if bypass_link_func:
                     res = await loop.run_in_executor(None, bypass_link_func, user_text)
-                    # استخراج الحقل النظيف من كائن الاستجابة مباشرة
                     if hasattr(res, "value") and res.value:
                         extracted_result = str(res.value)
                     elif hasattr(res, "url") and res.url:
