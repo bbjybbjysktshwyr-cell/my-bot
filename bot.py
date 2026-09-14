@@ -94,14 +94,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_text in ["🔗 تجاوز رابط", "🔗 Bypass Link"]:
         user_states[user_id] = "waiting_for_bypass_link"
         save_data()
-        msg = "Send your link now (Linkvertise / Delta):" if lang == "en" else "أرسل الرابط الآن (يدعم دلتا و Linkvertise):"
+        msg = "Send your link now:" if lang == "en" else "أرسل الرابط الآن:"
         await update.message.reply_text(msg)
         return
         
     elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
         user_states.pop(user_id, None)
         save_data()
-        msg = "Supported sites:\n- linkvertise.com\n- auth.platorelay.com (Delta)" if lang == "en" else "المواقع المدعومة حالياً:\n- linkvertise.com\n- auth.platorelay.com (Delta)"
+        msg = "Supported sites:\n- linkvertise.com" if lang == "en" else "المواقع المدعومة حالياً:\n- linkvertise.com"
         await update.message.reply_text(msg, reply_markup=get_main_keyboard(lang))
         return
         
@@ -149,41 +149,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 loop = asyncio.get_running_loop()
-                # معالجة روابط دلتا (Delta) أو Linkvertise
-                if "platorelay.com" in user_text or "delta" in user_text.lower():
-                    # محاولة استدعاء أداة دلتا إذا توفر ملف تشغيل لها، أو استخراجها عبر بايثون
-                    if os.path.exists("delta.py"):
-                        process = await asyncio.create_subprocess_exec(
-                            "python3", "delta.py", user_text,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE
-                        )
-                        stdout, stderr = await process.communicate()
-                        extracted_result = stdout.decode('utf-8', errors='ignore').strip()
-                        if not extracted_result:
-                            extracted_result = stderr.decode('utf-8', errors='ignore').strip()
+                if bypass_link_func:
+                    res = await loop.run_in_executor(None, bypass_link_func, user_text)
+                    # استخراج الحقل النظيف من كائن الاستجابة مباشرة
+                    if hasattr(res, "value") and res.value:
+                        extracted_result = str(res.value)
+                    elif hasattr(res, "url") and res.url:
+                        extracted_result = str(res.url)
+                    elif hasattr(res, "result") and res.result:
+                        extracted_result = str(res.result)
                     else:
-                        # استدعاء عام أو تمرير لمكتبة دلتا إذا كانت مثبتة ضمن المجلدات الفرعية
-                        extracted_result = "Delta handler requires delta.py script or active module."
+                        extracted_result = str(res)
                 else:
-                    if bypass_link_func:
-                        res = await loop.run_in_executor(None, bypass_link_func, user_text)
-                        if hasattr(res, "value") and res.value:
-                            extracted_result = str(res.value)
-                        elif hasattr(res, "url") and res.url:
-                            extracted_result = str(res.url)
-                        elif hasattr(res, "result") and res.result:
-                            extracted_result = str(res.result)
-                        else:
-                            extracted_result = str(res)
-                    else:
-                        process = await asyncio.create_subprocess_exec(
-                            "python3", "-m", "linkvertisebypass", user_text,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE
-                        )
-                        stdout, stderr = await process.communicate()
-                        extracted_result = stdout.decode('utf-8', errors='ignore').strip()
+                    process = await asyncio.create_subprocess_exec(
+                        "python3", "-m", "linkvertisebypass", user_text,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, stderr = await process.communicate()
+                    extracted_result = stdout.decode('utf-8', errors='ignore').strip()
             except Exception as ex:
                 extracted_result = str(ex)
 
@@ -342,7 +326,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running successfully with dual bypass routing...")
+    print("Bot is running perfectly...")
     app.run_polling()
 
 if __name__ == "__main__":
