@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 
 # ضع توكن البوت الخاص بك هنا
-TOKEN = "YOUR_BOT_TOKEN_HERE"
+TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
