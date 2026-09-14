@@ -6,10 +6,9 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, Cal
 
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 
-# عداد الطلبات الناجحة (يمكن جعله يتحدث ويحفظ في ملف لاحقاً)
+# عداد الطلبات الناجحة العام
 successful_requests_count = 1136
 
-# الأزرار الرئيسية أسفل الشاشة مطابقة للصورة تماماً
 def get_main_keyboard():
     keyboard = [
         ["🔗 تجاوز رابط"],
@@ -27,6 +26,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global successful_requests_count
     user_text = update.message.text
     
     if user_text == "🔗 تجاوز رابط" or user_text == "تجاوز رابط":
@@ -82,11 +82,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             elapsed_time = asyncio.get_event_loop().time() - start_time
             
-            if process.returncode ==0:
-                global successful_requests_count
+            if process.returncode == 0:
                 successful_requests_count += 1
                 
-                # استخراج الرابط أو الكود الناتج
                 solved_link = ""
                 for line in output_text.splitlines():
                     if "FREE_" in line or "http" in line or "KEY" in line:
@@ -95,7 +93,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not solved_link:
                     solved_link = output_text[-100:]
 
-                # تنسيق شكل رسالة النتيجة مثل الصورة المطلوبة تماماً
                 result_message = (
                     f"🔗 {solved_link}\n\n"
                     f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية\n\n"
