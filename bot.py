@@ -9,6 +9,17 @@ try:
 except ImportError:
     bypass_link_func = None
 
+# محاولة استيراد أدوات التجاوز المتاحة في المستودع لدعم دلتا وغيرها
+try:
+    import auth_client
+except ImportError:
+    auth_client = None
+
+try:
+    import link_generator
+except ImportError:
+    link_generator = None
+
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 DATA_FILE = "bot_data.json"
 
@@ -20,7 +31,7 @@ def load_data():
         except:
             pass
     return {
-        "successful_requests_count": 1146,
+        "successful_requests_count": 1147,
         "user_ratings": [
             {"name": "Mohamed", "stars": 5, "text": "كويس جدا ويسهل عليك وقت كبير"},
             {"name": "معصومة بلال", "stars": 5, "text": "فوللل جربووو"},
@@ -115,7 +126,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif user_text in ["⭐ تقييم البوت", "⭐ Bot Ratings"]:
         user_states.pop(user_id, None)
         save_data()
-        await show_ratings_page(update.message, 0, lang)
+        await show_ratings_page(update, context, 0, lang, edit=False)
         return
         
     elif user_text in ["🌍 تغيير اللغة", "🌍 Change Language"]:
@@ -148,8 +159,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             extracted_result = ""
             
             try:
-                if "platorelay.com" in user_text:
-                    # معالجة خاصة لرابط دلتا عبر الأمر المباشر أو الـ CLI إن وجد
+                loop = asyncio.get_running_loop()
+                # محاولة الفحص والتجاوز اعتماداً على المكتبة أو الملفات المحلية
+                if bypass_link_func:
+                    res = await loop.run_in_executor(None, bypass_link_func, user_text)
+                    # معالجة الكائن الناتج لو كان يحتوي على خصائص معينة مثل .result أو .url
+                    if hasattr(res, "result"):
+                        extracted_result = str(res.result)
+                    elif hasattr(res, "url"):
+                        extracted_result = str(res.url)
+                    else:
+                        extracted_result = str(res)
+                else:
+                    # الطريقة البديلة عبر سكريبت الـ CLI
                     process = await asyncio.create_subprocess_exec(
                         "python3", "-m", "linkvertisebypass", user_text,
                         stdout=asyncio.subprocess.PIPE,
@@ -157,10 +179,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     stdout, stderr = await process.communicate()
                     extracted_result = stdout.decode('utf-8', errors='ignore').strip()
-                else:
-                    if bypass_link_func:
-                        loop = asyncio.get_running_loop()
-                        extracted_result = await loop.run_in_executor(None, bypass_link_func, user_text)
             except Exception as ex:
                 extracted_result = str(ex)
 
@@ -168,11 +186,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 await status_msg.delete()
+            end:
+                pass
             except:
                 pass
 
-            # التحقق من أن النتيجة حقيقية وليست رسالة خطأ من المكتبة
-            if extracted_result and "unsupported" not in extracted_result.lower() and "error" not in extracted_result.lower():
+            # التحقق من خلو النتيجة من أخطاء
+            res_lower = extracted_result.lower()
+            if extracted_result and "unsupported" not in res_lower and "error" not in res_lower and "traceback" not in res_lower:
                 successful_requests_count += 1
                 save_data()
                 
@@ -182,14 +203,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
                 )
                 keyboard = [
-                    [InlineKeyboardButton("📋 نسخ النتيجة", callback_data=f"copy_key:{extracted_result}")],
+                    [InlineKeyboardButton("📋 كيف أنسخ النتيجة؟", callback_data="copy_key")],
                     [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
                 ]
                 await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 fail_message = (
                     f"❌ **فشل في تجاوز الرابط!**\n\n"
-                    f"⚠️ الرابط غير مدعوم أو يتطلب تحديث أدوات التجاوز في بيئة Termux."
+                    f"⚠️ الرابط غير مدعوم حالياً أو أن الأداة تتطلب تحديثاً."
                 )
                 keyboard = [
                     [InlineKeyboardButton("🛠️ الدعم الفني", url="https://t.me/AL_shz1")],
@@ -201,9 +222,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ يرجى الضغط على زر **(🔗 تجاوز رابط)** من القائمة أدناه أولاً قبل إرسال الرابط.")
 
-async def show_ratings_page(message_obj, index, lang="ar"):
+async def show_ratings_page(update: Update, context: ContextTypes.DEFAULT_TYPE, index: int, lang: str, edit: bool = False):
     if not user_ratings:
-        await message_obj.reply_text("No ratings yet." if lang == "en" else "لا توجد تقييمات حالياً.")
+        msg = "No ratings yet." if lang == "en" else "لا توجد تقييمات حالياً."
+        if edit:
+            await update.callback_query.edit_message_text(msg)
+        else:
+            await update.message.reply_text(msg)
         return
         
     total = len(user_ratings)
@@ -229,7 +254,11 @@ async def show_ratings_page(message_obj, index, lang="ar"):
     keyboard.append([InlineKeyboardButton("➕ إضافة تقييم", callback_data="start_add_rating")])
     keyboard.append([InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")])
     
-    await message_obj.reply_text(ratings_content, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    if edit:
+        await update.callback_query.edit_message_text(ratings_content, parse_mode="Markdown", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(ratings_content, parse_mode="Markdown", reply_markup=reply_markup)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -239,6 +268,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
         
     user_id = str(update.effective_user.id)
+    chat_id = update.effective_chat.id
     lang = user_languages.get(user_id, "ar")
     data = query.data
     
@@ -249,19 +279,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.delete()
         except:
             pass
-        await query.message.reply_text("القائمة الرئيسية:" if lang == "ar" else "Main Menu:", reply_markup=get_main_keyboard(lang))
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text="القائمة الرئيسية:" if lang == "ar" else "Main Menu:", 
+            reply_markup=get_main_keyboard(lang)
+        )
         
     elif data.startswith("lang_"):
         new_lang = data.split("_")[1]
         user_languages[user_id] = new_lang
         save_data()
         try:
-            if new_lang == "en":
-                await query.edit_message_text("Language changed to English successfully 🇺🇸")
-            else:
-                await query.edit_message_text("تم تغيير اللغة إلى العربية بنجاح 🇮🇶")
+            msg = "Language changed to English successfully 🇺🇸" if new_lang == "en" else "تم تغيير اللغة إلى العربية بنجاح 🇮🇶"
+            await query.edit_message_text(msg)
+            await context.bot.send_message(chat_id=chat_id, text="Main Menu:" if new_lang == "en" else "القائمة الرئيسية:", reply_markup=get_main_keyboard(new_lang))
         except:
-            await query.message.reply_text("Language updated successfully!" if new_lang == "en" else "تم تحديث اللغة بنجاح!")
+            pass
             
     elif data == "start_add_rating":
         keyboard = [
@@ -272,32 +305,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data="rate_star:5")],
             [InlineKeyboardButton("🔙 رجوع", callback_data="rating_page:0")]
         ]
-        try:
-            await query.edit_message_text("اختر عدد النجوم لتقييم البوت:", reply_markup=InlineKeyboardMarkup(keyboard))
-        except:
-            await query.message.reply_text("اختر عدد النجوم لتقييم البوت:", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("اختر عدد النجوم لتقييم البوت:" if lang == "ar" else "Choose stars:", reply_markup=InlineKeyboardMarkup(keyboard))
         
     elif data.startswith("rate_star:"):
         stars = int(data.split(":")[1])
         user_states[user_id + "_stars"] = stars
         user_states[user_id] = "waiting_for_rating_text"
         save_data()
-        try:
-            await query.edit_message_text(f"لقد اخترت {stars} نجوم ⭐.\nالآن يرجى إرسال رسالة برأيك أو تقييمك للبوت:")
-        except:
-            await query.message.reply_text(f"لقد اخترت {stars} نجوم ⭐.\nالآن يرجى إرسال رسالة برأيك أو تقييمك للبوت:")
+        await query.edit_message_text(
+            f"لقد اخترت {stars} نجوم ⭐.\nالآن يرجى إرسال رسالة برأيك أو تقييمك للبوت:" if lang == "ar" else f"You chose {stars} stars ⭐.\nNow send your review:"
+        )
         
     elif data.startswith("rating_page:"):
         idx = int(data.split(":")[1])
-        try:
-            await query.message.delete()
-        except:
-            pass
-        await show_ratings_page(query.message, idx, lang)
+        await show_ratings_page(update, context, idx, lang, edit=True)
         
-    elif data.startswith("copy_key:"):
+    elif data == "copy_key":
         try:
-            await query.answer("تم النسخ بنجاح!", show_alert=True)
+            await query.answer("اضغط ضغطة مطولة على النتيجة في الرسالة لنسخها بسهولة!", show_alert=True)
         except:
             pass
 
@@ -315,7 +340,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with fixed inline buttons and validation...")
+    print("Bot is running with repository tool integration...")
     app.run_polling()
 
 if __name__ == "__main__":
