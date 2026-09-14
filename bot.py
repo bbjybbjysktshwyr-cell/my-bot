@@ -7,7 +7,6 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, Cal
 
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 
-# ملفات حفظ البيانات (الخيار رقم 1)
 DATA_FILE = "bot_data.json"
 
 def load_data():
@@ -18,7 +17,7 @@ def load_data():
         except:
             pass
     return {
-        "successful_requests_count": 1136,
+        "successful_requests_count": 1138,
         "user_ratings": [
             {"name": "Mohamed", "stars": 5, "text": "كويس جدا ويسهل عليك وقت كبير"},
             {"name": "معصومة بلال", "stars": 5, "text": "فوللل جربووو"},
@@ -98,11 +97,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = (
             "🌐 المواقع المدعومة:\n\n"
             "1️⃣ auth.platorelay.com (Delta) - مدعوم ✅\n"
-            "2️⃣ linkvertise.com / link-to.net - مدعوم (عبر الأداة المضافة) ✅"
+            "2️⃣ linkvertise.com / link-to.net - مدعوم (عبر shadows.py) ✅"
         ) if lang != "en" else (
             "🌐 Supported Sites:\n\n"
             "1️⃣ auth.platorelay.com (Delta) - Supported ✅\n"
-            "2️⃣ linkvertise.com / link-to.net - Supported ✅"
+            "2️⃣ linkvertise.com / link-to.net - Supported (via shadows.py) ✅"
         )
         await update.message.reply_text(msg)
         return
@@ -134,7 +133,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg)
         return
 
-    # معالجة الروابط بعد الضغط على زر تجاوز رابط
     if user_states.get(user_id) == "waiting_for_bypass_link":
         user_states.pop(user_id, None)
         wait_msg = "⏳ Extracting, please wait..." if lang == "en" else "⏳ جارٍ حل الرابط، انتظر قليلاً..."
@@ -143,9 +141,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_time = asyncio.get_event_loop().time()
         try:
             script_to_run = "main.py"
-            # التحقق مما إذا كان الرابط يخص Linkvertise لتشغيل الأداة الجديدة
             if "linkvertise" in user_text.lower() or "link-to.net" in user_text.lower():
-                script_to_run = "linkvertise.py"
+                script_to_run = "shadows.py"
 
             process = await asyncio.create_subprocess_exec(
                 "python", script_to_run, user_text,
@@ -156,12 +153,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output_text = stdout.decode('utf-8')
             elapsed_time = asyncio.get_event_loop().time() - start_time
             
-            # استخراج النتيجة بناءً على نوع السكربت
             extracted_result = ""
             for line in output_text.splitlines():
-                if "FREE_" in line or "http://" in line or "https://" in line:
-                    if user_text not in line:  # تجنب إرجاع نفس الرابط المرسل
-                        extracted_result = line.strip()
+                line_str = line.strip()
+                if "FREE_" in line_str or "http://" in line_str or "https://" in line_str:
+                    if user_text not in line_str:
+                        extracted_result = line_str
                         break
             
             if not extracted_result:
@@ -189,8 +186,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 fail_message = (
                     f"❌ **فشل في تجاوز الرابط!**\n\n"
-                    f"⚠️ نعتذر منك، قد يكون الرابط منتهي الصلاحية أو أن الأداة تحتاج لتحديث.\n"
-                    f"يرجى توليد رابط جديد والمحاولة مرة أخرى."
+                    f"⚠️ نعتذر منك، يبدو أن الرابط غير صالح أو تتطلب الأداة متطلبات إضافية.\n"
+                    f"يرجى التأكد من تشغيل الأداة يدوياً أولاً للتأكد من تثبيت مكتباتها."
                 )
                 keyboard = [
                     [InlineKeyboardButton("🛠️ الدعم الفني", url="https://t.me/AL_shz1")],
@@ -255,7 +252,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("تم تغيير اللغة إلى العربية بنجاح 🇮🇶")
             
-    elif data == "start_add_rating":
+    elif data ==غ elif data == "start_add_rating":
         keyboard = [
             [InlineKeyboardButton("⭐", callback_data="rate_star:1"),
              InlineKeyboardButton("⭐⭐", callback_data="rate_star:2"),
@@ -295,7 +292,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with Delta and Linkvertise tools integrated...")
+    print("Bot is running with shadows.py integrated...")
     app.run_polling()
 
 if __name__ == "__main__":
