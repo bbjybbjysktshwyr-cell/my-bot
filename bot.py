@@ -4,7 +4,6 @@ import asyncio
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
-# محاولة استيراد مكتبة التجاوز مباشرة لتجنب مشاكل الـ CLI
 try:
     from linkvertisebypass import bypass as bypass_link_func
 except ImportError:
@@ -21,7 +20,7 @@ def load_data():
         except:
             pass
     return {
-        "successful_requests_count": 1143,
+        "successful_requests_count": 1146,
         "user_ratings": [
             {"name": "Mohamed", "stars": 5, "text": "كويس جدا ويسهل عليك وقت كبير"},
             {"name": "معصومة بلال", "stars": 5, "text": "فوللل جربووو"},
@@ -67,7 +66,6 @@ def get_main_keyboard(lang="ar"):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     lang = user_languages.get(user_id, "ar")
-    
     user_states.pop(user_id, None)
     save_data()
     
@@ -150,12 +148,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             extracted_result = ""
             
             try:
-                if bypass_link_func:
-                    # استدعاء دالة التجاوز مباشرة من المكتبة
-                    loop = asyncio.get_running_loop()
-                    extracted_result = await loop.run_in_executor(None, bypass_link_func, user_text)
-                else:
-                    # طريقة بديلة عبر أمر الـ CLI مع التقاط الأخطاء
+                if "platorelay.com" in user_text:
+                    # معالجة خاصة لرابط دلتا عبر الأمر المباشر أو الـ CLI إن وجد
                     process = await asyncio.create_subprocess_exec(
                         "python3", "-m", "linkvertisebypass", user_text,
                         stdout=asyncio.subprocess.PIPE,
@@ -163,6 +157,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     stdout, stderr = await process.communicate()
                     extracted_result = stdout.decode('utf-8', errors='ignore').strip()
+                else:
+                    if bypass_link_func:
+                        loop = asyncio.get_running_loop()
+                        extracted_result = await loop.run_in_executor(None, bypass_link_func, user_text)
             except Exception as ex:
                 extracted_result = str(ex)
 
@@ -173,7 +171,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
 
-            if extracted_result and "error" not in extracted_result.lower():
+            # التحقق من أن النتيجة حقيقية وليست رسالة خطأ من المكتبة
+            if extracted_result and "unsupported" not in extracted_result.lower() and "error" not in extracted_result.lower():
                 successful_requests_count += 1
                 save_data()
                 
@@ -190,8 +189,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 fail_message = (
                     f"❌ **فشل في تجاوز الرابط!**\n\n"
-                    f"⚠️ تأكد من صحة الرابط أو قم بتحديث مكتبة التجاوز في Termux بالأمر:\n"
-                    f"`pip install --upgrade linkvertisebypass`"
+                    f"⚠️ الرابط غير مدعوم أو يتطلب تحديث أدوات التجاوز في بيئة Termux."
                 )
                 keyboard = [
                     [InlineKeyboardButton("🛠️ الدعم الفني", url="https://t.me/AL_shz1")],
@@ -317,7 +315,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with direct library execution...")
+    print("Bot is running with fixed inline buttons and validation...")
     app.run_polling()
 
 if __name__ == "__main__":
