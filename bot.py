@@ -9,17 +9,6 @@ try:
 except ImportError:
     bypass_link_func = None
 
-# محاولة استيراد أدوات التجاوز المتاحة في المستودع لدعم دلتا وغيرها
-try:
-    import auth_client
-except ImportError:
-    auth_client = None
-
-try:
-    import link_generator
-except ImportError:
-    link_generator = None
-
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 DATA_FILE = "bot_data.json"
 
@@ -160,10 +149,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 loop = asyncio.get_running_loop()
-                # محاولة الفحص والتجاوز اعتماداً على المكتبة أو الملفات المحلية
                 if bypass_link_func:
                     res = await loop.run_in_executor(None, bypass_link_func, user_text)
-                    # معالجة الكائن الناتج لو كان يحتوي على خصائص معينة مثل .result أو .url
                     if hasattr(res, "result"):
                         extracted_result = str(res.result)
                     elif hasattr(res, "url"):
@@ -171,7 +158,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     else:
                         extracted_result = str(res)
                 else:
-                    # الطريقة البديلة عبر سكريبت الـ CLI
                     process = await asyncio.create_subprocess_exec(
                         "python3", "-m", "linkvertisebypass", user_text,
                         stdout=asyncio.subprocess.PIPE,
@@ -186,12 +172,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 await status_msg.delete()
-            end:
-                pass
             except:
                 pass
 
-            # التحقق من خلو النتيجة من أخطاء
             res_lower = extracted_result.lower()
             if extracted_result and "unsupported" not in res_lower and "error" not in res_lower and "traceback" not in res_lower:
                 successful_requests_count += 1
@@ -340,7 +323,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with repository tool integration...")
+    print("Bot is running successfully without syntax errors...")
     app.run_polling()
 
 if __name__ == "__main__":
