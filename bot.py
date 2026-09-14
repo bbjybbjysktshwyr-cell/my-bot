@@ -149,22 +149,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 loop = asyncio.get_running_loop()
-                if bypass_link_func:
-                    res = await loop.run_in_executor(None, bypass_link_func, user_text)
-                    if hasattr(res, "result"):
-                        extracted_result = str(res.result)
-                    elif hasattr(res, "url"):
-                        extracted_result = str(res.url)
+                # معالجة روابط دلتا (Delta) أو Linkvertise
+                if "platorelay.com" in user_text or "delta" in user_text.lower():
+                    # محاولة استدعاء أداة دلتا إذا توفر ملف تشغيل لها، أو استخراجها عبر بايثون
+                    if os.path.exists("delta.py"):
+                        process = await asyncio.create_subprocess_exec(
+                            "python3", "delta.py", user_text,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        stdout, stderr = await process.communicate()
+                        extracted_result = stdout.decode('utf-8', errors='ignore').strip()
+                        if not extracted_result:
+                            extracted_result = stderr.decode('utf-8', errors='ignore').strip()
                     else:
-                        extracted_result = str(res)
+                        # استدعاء عام أو تمرير لمكتبة دلتا إذا كانت مثبتة ضمن المجلدات الفرعية
+                        extracted_result = "Delta handler requires delta.py script or active module."
                 else:
-                    process = await asyncio.create_subprocess_exec(
-                        "python3", "-m", "linkvertisebypass", user_text,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout, stderr = await process.communicate()
-                    extracted_result = stdout.decode('utf-8', errors='ignore').strip()
+                    if bypass_link_func:
+                        res = await loop.run_in_executor(None, bypass_link_func, user_text)
+                        if hasattr(res, "value") and res.value:
+                            extracted_result = str(res.value)
+                        elif hasattr(res, "url") and res.url:
+                            extracted_result = str(res.url)
+                        elif hasattr(res, "result") and res.result:
+                            extracted_result = str(res.result)
+                        else:
+                            extracted_result = str(res)
+                    else:
+                        process = await asyncio.create_subprocess_exec(
+                            "python3", "-m", "linkvertisebypass", user_text,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        stdout, stderr = await process.communicate()
+                        extracted_result = stdout.decode('utf-8', errors='ignore').strip()
             except Exception as ex:
                 extracted_result = str(ex)
 
@@ -323,7 +342,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running successfully without syntax errors...")
+    print("Bot is running successfully with dual bypass routing...")
     app.run_polling()
 
 if __name__ == "__main__":
