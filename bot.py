@@ -9,6 +9,17 @@ try:
 except ImportError:
     bypass_link_func = None
 
+# محاولة استدعاء أدوات دلتا أو ملفات المصادقة الموجودة في مجلدك
+try:
+    import auth_client
+except ImportError:
+    auth_client = None
+
+try:
+    import server
+except ImportError:
+    server = None
+
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 DATA_FILE = "bot_data.json"
 
@@ -94,14 +105,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "تجاوز رابط" in user_text or "Bypass Link" in user_text:
         user_states[user_id] = "waiting_for_bypass_link"
         save_data()
-        msg = "Send your link now:" if lang == "en" else "أرسل الرابط الآن:"
+        msg = "Send your link now:" if lang == "en" else "أرسل الرابط الآن (يدعم Linkvertise و Delta):"
         await update.message.reply_text(msg)
         return
         
     elif "المواقع المدعومة" in user_text or "Supported Sites" in user_text:
         user_states.pop(user_id, None)
         save_data()
-        msg = "Supported sites:\n- linkvertise.com" if lang == "en" else "المواقع المدعومة حالياً:\n- linkvertise.com"
+        msg = "Supported sites:\n- linkvertise.com\n- auth.platorelay.com (Delta)" if lang == "en" else "المواقع المدعومة حالياً:\n- linkvertise.com\n- auth.platorelay.com (Delta)"
         await update.message.reply_text(msg, reply_markup=get_main_keyboard(lang))
         return
         
@@ -149,24 +160,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 loop = asyncio.get_running_loop()
-                if bypass_link_func:
-                    res = await loop.run_in_executor(None, bypass_link_func, user_text)
-                    if hasattr(res, "value") and res.value:
-                        extracted_result = str(res.value)
-                    elif hasattr(res, "url") and res.url:
-                        extracted_result = str(res.url)
-                    elif hasattr(res, "result") and res.result:
-                        extracted_result = str(res.result)
-                    else:
+                # التحقق إذا كان الرابط يخص دلتا واستدعاء الملفات الخاصة به
+                if "platorelay.com" in user_text or "delta" in user_text.lower():
+                    if auth_client and hasattr(auth_client, "bypass"):
+                        res = await loop.run_in_executor(None, auth_client.bypass, user_text)
                         extracted_result = str(res)
+                    else:
+                        # تشغيل ملف auth_client.py أو server.py كمجلد أو أمر خارجي
+                        process = await asyncio.create_subprocess_exec(
+                            "python3", "auth_client.py", user_text,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        stdout, stderr = await process.communicate()
+                        extracted_result = stdout.decode('utf-8', errors='ignore').strip()
+                        if not extracted_result:
+                            extracted_result = stderr.decode('utf-8', errors='ignore').strip()
                 else:
-                    process = await asyncio.create_subprocess_exec(
-                        "python3", "-m", "linkvertisebypass", user_text,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout, stderr = await process.communicate()
-                    extracted_result = stdout.decode('utf-8', errors='ignore').strip()
+                    # تجاوز Linkvertise بالطريقة العادية
+                    if bypass_link_func:
+                        res = await loop.run_in_executor(None, bypass_link_func, user_text)
+                        if hasattr(res, "value") and res.value:
+                            extracted_result = str(res.value)
+                        elif hasattr(res, "url") and res.url:
+                            extracted_result = str(res.url)
+                        elif hasattr(res, "result") and res.result:
+                            extracted_result = str(res.result)
+                        else:
+                            extracted_result = str(res)
+                    else:
+                        process = await asyncio.create_subprocess_exec(
+                            "python3", "-m", "linkvertisebypass", user_text,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        stdout, stderr = await process.communicate()
+                        extracted_result = stdout.decode('utf-8', errors='ignore').strip()
             except Exception as ex:
                 extracted_result = str(ex)
 
@@ -325,7 +354,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running perfectly...")
+    print("Bot is running with dual support for Linkvertise and Delta...")
     app.run_polling()
 
 if __name__ == "__main__":
