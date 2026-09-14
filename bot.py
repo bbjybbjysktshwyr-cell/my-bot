@@ -1,9 +1,14 @@
 import os
 import json
 import asyncio
-import subprocess
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
+
+# محاولة استيراد مكتبة التجاوز مباشرة لتجنب مشاكل الـ CLI
+try:
+    from linkvertisebypass import bypass as bypass_link_func
+except ImportError:
+    bypass_link_func = None
 
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 DATA_FILE = "bot_data.json"
@@ -78,7 +83,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = user_languages.get(user_id, "ar")
     user_text = update.message.text.strip()
     
-    # التعامل مع إدخال التقييم
     if user_states.get(user_id) == "waiting_for_rating_text":
         stars = user_states.get(user_id + "_stars", 5)
         name = update.effective_user.first_name or "User"
@@ -89,7 +93,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ شكراً لك! تم إضافة تقييمك بنجاح.", reply_markup=get_main_keyboard(lang))
         return
 
-    # الأزرار الرئيسية
     if user_text in ["🔗 تجاوز رابط", "🔗 Bypass Link"]:
         user_states[user_id] = "waiting_for_bypass_link"
         save_data()
@@ -135,7 +138,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, reply_markup=get_main_keyboard(lang))
         return
 
-    # معالجة إرسال الروابط
     if user_states.get(user_id) == "waiting_for_bypass_link":
         if "http://" in user_text or "https://" in user_text:
             user_states.pop(user_id, None)
@@ -148,64 +150,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             extracted_result = ""
             
             try:
-                process = await asyncio.create_subprocess_exec(
-                    "python", "-m", "linkvertisebypass.cli", user_text,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
-                stdout, stderr = await process.communicate()
-                output_text = stdout.decode('utf-8', errors='ignore').strip()
-                elapsed_time = asyncio.get_event_loop().time() - start_time
-                
-                try:
-                    data = json.loads(output_text)
-                    if isinstance(data, dict):
-                        extracted_result = data.get("value") or data.get("url") or data.get("destination") or data.get("result") or str(data)
-                except:
-                    for line in output_text.splitlines():
-                        if "http://" in line or "https://" in line or "FREE_" in line or "game" in line:
-                            extracted_result = line.strip()
-                            break
-                    if not extracted_result:
-                        extracted_result = output_text
-
-                if process.returncode == 0 and extracted_result and "error" not in extracted_result.lower():
-                    successful_requests_count += 1
-                    save_data()
-                    
-                    result_message = (
-                        f"✅ **تم التجاوز بنجاح:**\n\n"
-                        f"`{extracted_result}`\n\n"
-                        f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
+                if bypass_link_func:
+                    # استدعاء دالة التجاوز مباشرة من المكتبة
+                    loop = asyncio.get_running_loop()
+                    extracted_result = await loop.run_in_executor(None, bypass_link_func, user_text)
+                else:
+                    # طريقة بديلة عبر أمر الـ CLI مع التقاط الأخطاء
+                    process = await asyncio.create_subprocess_exec(
+                        "python3", "-m", "linkvertisebypass", user_text,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
                     )
-                    keyboard = [
-                        [InlineKeyboardButton("📋 نسخ النتيجة", callback_data=f"copy_key:{extracted_result}")],
-                        [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
-                    ]
-                    try:
-                        await status_msg.delete()
-                    except:
-                        pass
-                    await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-                    return
+                    stdout, stderr = await process.communicate()
+                    extracted_result = stdout.decode('utf-8', errors='ignore').strip()
             except Exception as ex:
-                print(f"Bypass error: {ex}")
+                extracted_result = str(ex)
 
-            # محاولة بديلة في حال فشل الأداة كلياً لتفادي توقف البوت
-            fail_message = (
-                f"❌ **فشل في تجاوز الرابط تلقائياً!**\n\n"
-                f"⚠️ الأداة لم تستجب للرابط المطلوب أو أنه يتطلب تحديثاً للمكتبات في Termux.\n"
-                f"جرب تشغيل الأداة يدوياً للتأكد من عملها."
-            )
-            keyboard = [
-                [InlineKeyboardButton("🛠️ الدعم الفني", url="https://t.me/AL_shz1")],
-                [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
-            ]
+            elapsed_time = asyncio.get_event_loop().time() - start_time
+            
             try:
                 await status_msg.delete()
             except:
                 pass
-            await update.message.reply_text(fail_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+            if extracted_result and "error" not in extracted_result.lower():
+                successful_requests_count += 1
+                save_data()
+                
+                result_message = (
+                    f"✅ **تم التجاوز بنجاح:**\n\n"
+                    f"`{extracted_result}`\n\n"
+                    f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
+                )
+                keyboard = [
+                    [InlineKeyboardButton("📋 نسخ النتيجة", callback_data=f"copy_key:{extracted_result}")],
+                    [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
+                ]
+                await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                fail_message = (
+                    f"❌ **فشل في تجاوز الرابط!**\n\n"
+                    f"⚠️ تأكد من صحة الرابط أو قم بتحديث مكتبة التجاوز في Termux بالأمر:\n"
+                    f"`pip install --upgrade linkvertisebypass`"
+                )
+                keyboard = [
+                    [InlineKeyboardButton("🛠️ الدعم الفني", url="https://t.me/AL_shz1")],
+                    [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
+                ]
+                await update.message.reply_text(fail_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             await update.message.reply_text("❌ الرابط غير صحيح. يرجى إرسال رابط صالح يبدأ بـ http:// أو https://")
     else:
@@ -325,7 +317,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with robust error handling...")
+    print("Bot is running with direct library execution...")
     app.run_polling()
 
 if __name__ == "__main__":
