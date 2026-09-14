@@ -252,7 +252,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("تم تغيير اللغة إلى العربية بنجاح 🇮🇶")
             
-    elif data ==غ elif data == "start_add_rating":
+    elif data == "start_add_rating":
         keyboard = [
             [InlineKeyboardButton("⭐", callback_data="rate_star:1"),
              InlineKeyboardButton("⭐⭐", callback_data="rate_star:2"),
