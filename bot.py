@@ -1,9 +1,12 @@
 import os
+import sys
 import asyncio
-import zipfile
 import subprocess
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
+
+# أضف مسار الأداة ليتمكن بايثون من قراءتها واستيرادها
+sys.path.append(os.path.abspath("python"))
 
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 
@@ -15,20 +18,6 @@ user_ratings = [
     {"name": "Cristiano", "stars": 5, "text": "ياخي اسطوره الي اخترع هادا البوت"}
 ]
 user_states = {}
-
-# فك الملف المضغوط تلقائياً عند تشغيل البوت إن وجد ولم يُفك مسبقاً
-def extract_zip_if_needed():
-    zip_name = "linkvertisebypass-main.zip"
-    extracted_dir = "linkvertise_tool"
-    if os.path.exists(zip_name) and not os.path.exists(extracted_dir):
-        try:
-            with zipfile.ZipFile(zip_name, 'r') as zip_ref:
-                zip_ref.extractall(extracted_dir)
-            print("Successfully extracted Linkvertise tool folder.")
-        except Exception as e:
-            print(f"Error extracting zip: {e}")
-
-extract_zip_if_needed()
 
 def get_main_keyboard(lang="ar"):
     if lang == "en":
@@ -78,7 +67,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
-        msg = "Supported sites:\n- auth.platorelay.com (Delta)\n- linkvertise.com" if lang == "en" else "المواقع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com"
+        msg = "Supported sites:\n- auth.platorelay.com (Delta)\n- linkvertise.com" if lang == "en" else "الموqاقع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com"
         await update.message.reply_text(msg)
         return
         
@@ -112,52 +101,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_time = asyncio.get_event_loop().time()
         extracted_result = ""
         
-        # تحديد الأداة المناسبة بناءً على نوع الرابط
         is_linkvertise = "linkvertise" in user_text.lower() or "link-to.net" in user_text.lower()
         
-        cmd = []
+        # اختيار طريقة الاستخراج المناسبة
         if is_linkvertise:
-            # البحث عن ملف البايثون داخل المجلد المفكوك أو استخدام link_generator.py
-            if os.path.exists("link_generator.py"):
-                cmd = ["python", "link_generator.py", user_text]
-            else:
-                extracted_dir = "linkvertise_tool"
-                script_found = False
-                if os.path.exists(extracted_dir):
-                    for root, dirs, files in os.walk(extracted_dir):
-                        for file in files:
-                            if file.endswith(".py"):
-                                cmd = ["python", os.path.join(root, file), user_text]
-                                script_found = True
-                                break
-                        if script_found:
-                            break
-                if not cmd:
-                    cmd = ["python", "main.py", user_text]
+            try:
+                # محاولة استيراد الأداة الجديدة واستخدامها برمجياً
+                from linkvertisebypass import bypass as lv_bypass
+                # بعض مكتبات zribe تستخدم دالة غير مباشرة، سنستدعيها عبر asyncio لتجنب حظر البوت
+                extracted_result = await asyncio.to_thread(lv_bypass, user_text)
+            except Exception as e:
+                # إن لم تنجح الطريقة المباشرة، نجرب تشغيلها كأمر بايثون مستقل
+                try:
+                    process = await asyncio.create_subprocess_exec(
+                        "python", "-c", f"import linkvertisebypass; print(linkvertisebypass.bypass('{user_text}'))",
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    stdout, stderr = await process.communicate()
+                    res = stdout.decode('utf-8', errors='ignore').strip()
+                    if res and "None" not in res:
+                        extracted_result = res
+                except Exception:
+                    pass
         else:
             # روابط دلتا وباقي المواقع
             cmd = ["python", "main.py", user_text]
-
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
-            output_text = stdout.decode('utf-8', errors='ignore')
-            
-            for line in output_text.splitlines():
-                if "FREE_" in line or "http://" in line or "https://" in line or "Key" in line:
-                    if user_text not in line:
-                        extracted_result = line.strip()
-                        break
-            if not extracted_result:
-                lines = [l.strip() for l in output_text.splitlines() if l.strip() and not l.startswith("Traceback") and "127.0.0.1" not in l]
-                if lines:
-                    extracted_result = lines[-1]
-        except Exception:
-            pass
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                output_text = stdout.decode('utf-8', errors='ignore')
+                
+                for line in output_text.splitlines():
+                    if "FREE_" in line or "http://" in line or "https://" in line or "Key" in line:
+                        if user_text not in line:
+                            extracted_result = line.strip()
+                            break
+                if not extracted_result:
+                    lines = [l.strip() for l in output_text.splitlines() if l.strip() and not l.startswith("Traceback") and "127.0.0.1" not in l]
+                    if lines:
+                        extracted_result = lines[-1]
+            except Exception:
+                pass
             
         elapsed_time = asyncio.get_event_loop().time() - start_time
         
@@ -317,7 +306,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with full tools extraction support...")
+    print("Bot is running with updated zribe linkvertise support...")
     app.run_polling()
 
 if __name__ == "__main__":
