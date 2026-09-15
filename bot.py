@@ -37,25 +37,36 @@ def get_main_keyboard(lang="ar"):
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def fetch_bypassed_link(url: str) -> str:
-    """استخدام API خارجي موثوق لتجاوز الرابط وإرجاع الوجهة النهائية مباشرة"""
+    """استخدام الـ API الخارجي مع معالجة دقيقة للرابط والترويسات"""
     try:
         encoded_url = urllib.parse.quote(url, safe='')
         api_url = f"https://bypass.bot.nu/bypass2?url={encoded_url}"
         
         req = urllib.request.Request(
             api_url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json'
+            }
         )
         
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            # التحقق من وجود الوجهة النهائية (destination) في الرد
-            if "destination" in data and data["destination"]:
-                return data["destination"]
-            elif "result" in data and data["result"]:
-                return data["result"]
+        with urllib.request.urlopen(req, timeout=12) as response:
+            raw_data = response.read().decode('utf-8')
+            data = json.loads(raw_data)
+            
+            # فحص المفاتيح المحتملة التي قد تحتوي على الرابط المستهدف
+            for key in ["destination", "result", "url", "bypass"]:
+                if key in data and data[key]:
+                    val = str(data[key])
+                    if val.startswith("http"):
+                        return val
+            
+            # إذا كان الرد عبارة عن نص الرابط مباشرة
+            if raw_data.startswith("http"):
+                return raw_data.strip()
+                
     except Exception as e:
-        print(f"Bypass Error: {e}")
+        print(f"Bypass API Error: {e}")
     return ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -122,7 +133,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         start_time = asyncio.get_event_loop().time()
         
-        # استدعاء دالة جلب الرابط المستهدف في الخلفية
+        # استدعاء دالة جلب الرابط المستهدف
         extracted_result = await asyncio.to_thread(fetch_bypassed_link, user_text)
             
         elapsed_time = asyncio.get_event_loop().time() - start_time
@@ -292,7 +303,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with reliable bypass API...")
+    print("Bot is running with enhanced API fetching...")
     app.run_polling()
 
 if __name__ == "__main__":
