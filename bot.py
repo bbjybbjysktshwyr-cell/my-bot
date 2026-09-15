@@ -2,7 +2,6 @@ import os
 import sys
 import json
 import asyncio
-import base64
 import urllib.parse
 import urllib.request
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
@@ -38,50 +37,50 @@ def get_main_keyboard(lang="ar"):
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def local_linkvertise_bypass(url: str) -> str:
-    """دالة محلية ذكية لاستخراج روابط Linkvertise دون الحاجة لسيرفرات خارجية"""
+    """استخراج النتيجة النهائية الرابط المقصود محلياً بدون إرجاع رابط الـ API"""
     try:
+        # محاولة جلب رابط الـ API الداخلي للينكفيرتايز مباشرة
         if "linkvertise.com" in url or "link-to.net" in url:
-            # استخراج المعرف أو الرابط وتفكيكه
             parsed = urllib.parse.urlparse(url)
             path = parsed.path
             parts = [p for p in path.split('/') if p]
-            
-            # محاولة جلب الرابط الأصلي عبر تحليل مسار الرابط أو جلب الصفحة بشكل مباشر
-            req = urllib.request.Request(
-                url, 
-                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=8) as response:
-                    html_content = response.read().decode('utf-8', errors='ignore')
-                    # البحث عن الرابط المستهدف داخل الجافاسكريبت أو محتوى الصفحة
-                    if '"target":' in html_content:
-                        idx = html_content.find('"target":')
-                        sub = html_content[idx:idx+300]
-                        parts_sub = sub.split('"')
-                        for p in parts_sub:
-                            if p.startswith('http://') or p.startswith('https://'):
-                                return p
-            except Exception:
-                pass
-                
             if len(parts) >= 2:
-                # طريقة بديلة لاعتماد الـ ID واستخراج الوجهة
                 code = parts[-1]
                 target_api = f"https://linkvertise.com/api/v1/redirect?query={code}"
-                req2 = urllib.request.Request(target_api, headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'})
+                req = urllib.request.Request(
+                    target_api, 
+                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept': 'application/json'}
+                )
                 try:
-                    with urllib.request.urlopen(req2, timeout=6) as resp2:
-                        data = json.loads(resp2.read().decode('utf-8'))
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read().decode('utf-8'))
                         if "target" in data:
                             return data["target"]
                         elif "link" in data and "url" in data["link"]:
                             return data["link"]["url"]
                 except Exception:
                     pass
-        return url
+
+            # طريقة بديلة لقراءة محتوى الصفحة واستخراج الوجهة
+            req_page = urllib.request.Request(
+                url, 
+                headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36'}
+            )
+            try:
+                with urllib.request.urlopen(req_page, timeout=6) as resp_page:
+                    html = resp_page.read().decode('utf-8', errors='ignore')
+                    if '"target":' in html:
+                        idx = html.find('"target":')
+                        sub = html[idx:idx+250]
+                        for token in sub.split('"'):
+                            if token.startswith('http://') or token.startswith('https://'):
+                                return token
+            except Exception:
+                pass
+                
+        return ""
     except Exception:
-        return url
+        return ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -114,7 +113,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
-        msg = "Supported sites:\n- auth.platorelay.com (Delta)\n- linkvertise.com" if lang == "en" else "الموqاع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com"
+        msg = "Supported sites:\n- auth.platorelay.com (Delta)\n- linkvertise.com" if lang == "en" else "المواقع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com"
         await update.message.reply_text(msg)
         return
         
@@ -151,10 +150,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_linkvertise = "linkvertise" in user_text.lower() or "link-to.net" in user_text.lower()
         
         if is_linkvertise:
-            # تنفيذ التجاوز المحلي الآمن
-            extracted_result = local_linkvertise_bypass(user_text)
-            if not extracted_result or extracted_result == user_text:
-                extracted_result = f"https://bypass.bot.nu/bypass2?url={urllib.parse.quote(user_text)}" # محاولة أخيرة
+            # تشغيل التجاوز المحلي في الخلفية عبر asyncio لتجنب تعليق البوت
+            extracted_result = await asyncio.to_thread(local_linkvertise_bypass, user_text)
         else:
             cmd = ["python", "main.py", user_text]
             try:
@@ -163,20 +160,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE
                 )
-                stdout, stderr = await process.communicate()
+                stdout, _ = await process.communicate()
                 output_text = stdout.decode('utf-8', errors='ignore')
-                
                 for line in output_text.splitlines():
-                    if "FREE_" in line or "http://" in line or "https://" in line or "Key" in line:
+                    if "http://" in line or "https://" in line or "Key" in line:
                         if user_text not in line:
                             extracted_result = line.strip()
                             break
-                if not extracted_result:
-                    lines = [l.strip() for l in output_text.splitlines() if l.strip() and not l.startswith("Traceback")]
-                    if lines:
-                        extracted_result = lines[-1]
             except Exception as e:
-                extracted_result = f"EXC: {str(e)}"
+                extracted_result = ""
             
         elapsed_time = asyncio.get_event_loop().time() - start_time
         
@@ -185,7 +177,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-        if extracted_result and not extracted_result.startswith("EXC:") and extracted_result != user_text:
+        if extracted_result and extracted_result.startswith("http"):
             successful_requests_count += 1
             last_results[user_id] = extracted_result
 
@@ -199,7 +191,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            fail_message = "❌ عذراً، لم يتم استخراج الرابط أو أن الرابط يتطلب تفاعلاً بشرياً."
+            fail_message = "❌ عذراً، لم يتم استخراج الرابط أو أن الرابط يتطلب تخطياً بشرياً يدوياً."
             keyboard = [[InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_menu")]]
             await update.message.reply_text(fail_message, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
@@ -345,7 +337,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with built-in native bypass...")
+    print("Bot is running perfectly...")
     app.run_polling()
 
 if __name__ == "__main__":
