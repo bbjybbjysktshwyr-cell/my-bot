@@ -101,23 +101,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_time = asyncio.get_event_loop().time()
         extracted_result = ""
         
-        is_linkvertise = "linkvertise" in user_text.lower() or "link-to.net" in user_text.lower()
+        is_linkvertise = "linkvertise" in user_text.lower() or "link-to.net" in user_text.lower() or "linkvertise.download" in user_text.lower()
         
         if is_linkvertise:
             try:
+                # استخدام API موثوق وخاص بـ Linkvertise
                 api_url = f"https://bypass.bot.nu/bypass2?url={urllib.parse.quote(user_text)}"
                 req = urllib.request.Request(
                     api_url, 
                     headers={'User-Agent': 'Mozilla/5.0'}
                 )
                 
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    res_data = json.loads(response.read().decode())
+                with urllib.request.urlopen(req, timeout=12) as response:
+                    res_text = response.read().decode('utf-8')
+                    res_data = json.loads(res_text)
                     if isinstance(res_data, dict):
-                        extracted_result = res_data.get("result", {}).get("destination") or res_data.get("destination") or res_data.get("url") or ""
+                        # البحث في عدة احتمالات لمكان الرابط الناتج
+                        result_obj = res_data.get("result")
+                        if isinstance(result_obj, dict):
+                            extracted_result = result_obj.get("destination") or result_obj.get("url") or result_obj.get("target") or ""
+                        elif isinstance(result_obj, str):
+                            extracted_result = result_obj
+                            
+                        if not extracted_result:
+                            extracted_result = res_data.get("destination") or res_data.get("url") or ""
                 
                 if not extracted_result:
-                    extracted_result = "فشل استخراج الرابط، تأكد من صحة الرابط المرسل."
+                    extracted_result = f"استجابة غير متوقعة من السيرفر: {res_text[:100]}"
             except Exception as e:
                 extracted_result = f"خطأ في الاتصال: {str(e)}"
         else:
@@ -151,7 +161,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
         if extracted_result:
-            if not extracted_result.startswith("خطأ") and not extracted_result.startswith("EXC:"):
+            if not extracted_result.startswith("خطأ") and not extracted_result.startswith("EXC:") and not extracted_result.startswith("استجابة"):
                 successful_requests_count += 1
             result_message = (
                 f"✅ **النتيجة المستخرجة:**\n`{extracted_result}`\n\n"
@@ -163,7 +173,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            fail_message = "❌ عذراً، فشل استخراج الرابط. تأكد من عمل الأداة الخاصة به."
+            fail_message = "❌ عذراً، فشل استخراج الرابط. تأكد من صحة الرابط."
             keyboard = [[InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]]
             await update.message.reply_text(fail_message, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
