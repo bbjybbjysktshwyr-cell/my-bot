@@ -4,6 +4,7 @@ import subprocess
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
+# توكن البوت الخاص بك
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 
 successful_requests_count = 1136
@@ -35,7 +36,7 @@ def get_main_keyboard(lang="ar"):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = user_languages.get(user_id, "ar")
-    welcome_text = "Welcome to the Link Bypass Bot 👋\n\nSend any Delta or Linkvertise link directly:" if lang == "en" else "مرحباً بك في بوت تجاوز الروابط 👋\n\nأرسل أي رابط مباشرة وسأقوم بحله:"
+    welcome_text = "Welcome to the Link Bypass Bot 👋\n\nSend any link directly:" if lang == "en" else "مرحباً بك في بوت تجاوز الروابط 👋\n\nأرسل أي رابط مباشرة وسأقوم بحله:"
     await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard(lang))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -63,7 +64,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
-        msg = "Supported sites:\n- platorelay.com (Delta)\n- linkvertise.com" if lang == "en" else "المواقع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com"
+        msg = "Supported sites:\n- auth.platorelay.com (Delta)" if lang == "en" else "المواقع المدعومة:\n- auth.platorelay.com (Delta)"
         await update.message.reply_text(msg)
         return
         
@@ -98,8 +99,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         extracted_result = ""
         
         script_to_run = "main.py"
-        if "linkvertise" in user_text.lower() or "link-to.net" in user_text.lower():
-            script_to_run = "linkvertise.py"
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -181,7 +180,7 @@ async def show_ratings_page_message(message_obj, index, lang="ar"):
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     
-    # الاستجابة الفورية للزر لكي لا يتجمد أو تظهر علامة التحميل المطولة
+    # الاستجابة الفورية للزر لكي لا يتجمد أو تظهر دائرة التحميل
     try:
         await query.answer()
     except Exception:
@@ -265,7 +264,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("copy_key:"):
         key_to_copy = data.split(":", 1)[1]
         try:
-            # إظهار رسالة منبثقة (Popup) في أعلى الشاشة تؤكد النسخ الناجح
+            # رسالة تنبيه منبثقة تؤكد نسخ النتيجة بنجاح
             await query.answer(f"تم النسخ بنجاح: {key_to_copy}", show_alert=True)
         except Exception:
             pass
@@ -284,7 +283,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running smoothly with fixed callback queries...")
+    print("Bot is running successfully...")
     app.run_polling()
 
 if __name__ == "__main__":
