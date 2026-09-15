@@ -105,7 +105,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if is_linkvertise:
             try:
-                api_url = f"https://bypass.pmh.workers.dev/?url={urllib.parse.quote(user_text)}"
+                api_url = f"https://bypass.bot.nu/bypass2?url={urllib.parse.quote(user_text)}"
                 req = urllib.request.Request(
                     api_url, 
                     headers={'User-Agent': 'Mozilla/5.0'}
@@ -114,10 +114,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with urllib.request.urlopen(req, timeout=10) as response:
                     res_data = json.loads(response.read().decode())
                     if isinstance(res_data, dict):
-                        extracted_result = res_data.get("destination") or res_data.get("url") or res_data.get("result") or ""
+                        extracted_result = res_data.get("result", {}).get("destination") or res_data.get("destination") or res_data.get("url") or ""
                 
                 if not extracted_result:
-                    extracted_result = "فشل استخراج الرابط من الـ API، تأكد من صحة الرابط."
+                    extracted_result = "فشل استخراج الرابط، تأكد من صحة الرابط المرسل."
             except Exception as e:
                 extracted_result = f"خطأ في الاتصال: {str(e)}"
         else:
