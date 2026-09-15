@@ -1,4 +1,6 @@
 import os
+import sys
+import json
 import asyncio
 import subprocess
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
@@ -102,21 +104,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_linkvertise:
             try:
                 process = await asyncio.create_subprocess_exec(
-                    "python", "linkvertisebypass/cli.py", user_text,
+                    "python", "-m", "linkvertisebypass.cli", user_text,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    cwd="python"
+                    stderr=subprocess.PIPE
                 )
                 stdout, stderr = await process.communicate()
-                res = stdout.decode('utf-8', errors='ignore').strip()
-                if res:
-                    for line in res.splitlines():
+                output_text = stdout.decode('utf-8', errors='ignore').strip()
+                
+                try:
+                    data = json.loads(output_text)
+                    if isinstance(data, dict):
+                        extracted_result = data.get("url") or data.get("destination") or data.get("result") or ""
+                except json.JSONDecodeError:
+                    pass
+                    
+                if not extracted_result:
+                    for line in output_text.splitlines():
                         if "http://" in line or "https://" in line:
                             if user_text not in line:
                                 extracted_result = line.strip()
                                 break
-                    if not extracted_result:
-                        extracted_result = res.splitlines()[-1]
             except Exception:
                 pass
         else:
