@@ -110,22 +110,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 stdout, stderr = await process.communicate()
                 output_text = stdout.decode('utf-8', errors='ignore').strip()
+                error_text = stderr.decode('utf-8', errors='ignore').strip()
                 
-                try:
-                    data = json.loads(output_text)
-                    if isinstance(data, dict):
-                        extracted_result = data.get("url") or data.get("destination") or data.get("result") or ""
-                except json.JSONDecodeError:
-                    pass
-                    
-                if not extracted_result:
-                    for line in output_text.splitlines():
-                        if "http://" in line or "https://" in line:
-                            if user_text not in line:
-                                extracted_result = line.strip()
-                                break
-            except Exception:
-                pass
+                if error_text and not output_text:
+                    extracted_result = f"ERROR: {error_text[:300]}"
+                else:
+                    try:
+                        data = json.loads(output_text)
+                        if isinstance(data, dict):
+                            extracted_result = data.get("url") or data.get("destination") or data.get("result") or ""
+                    except json.JSONDecodeError:
+                        pass
+                        
+                    if not extracted_result:
+                        for line in output_text.splitlines():
+                            if "http://" in line or "https://" in line:
+                                if user_text not in line:
+                                    extracted_result = line.strip()
+                                    break
+                        if not extracted_result and output_text:
+                            extracted_result = output_text[:300]
+            except Exception as e:
+                extracted_result = f"EXC: {str(e)}"
         else:
             cmd = ["python", "main.py", user_text]
             try:
@@ -146,8 +152,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     lines = [l.strip() for l in output_text.splitlines() if l.strip() and not l.startswith("Traceback") and "127.0.0.1" not in l]
                     if lines:
                         extracted_result = lines[-1]
-            except Exception:
-                pass
+            except Exception as e:
+                extracted_result = f"EXC: {str(e)}"
             
         elapsed_time = asyncio.get_event_loop().time() - start_time
         
@@ -157,7 +163,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
         if extracted_result:
-            successful_requests_count += 1
+            if not extracted_result.startswith("ERROR:") and not extracted_result.startswith("EXC:"):
+                successful_requests_count += 1
             result_message = (
                 f"✅ **النتيجة المستخرجة:**\n`{extracted_result}`\n\n"
                 f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
