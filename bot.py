@@ -19,10 +19,11 @@ user_states = {}
 # فك الملف المضغوط تلقائياً عند تشغيل البوت إن وجد ولم يُفك مسبقاً
 def extract_zip_if_needed():
     zip_name = "linkvertisebypass-main.zip"
-    if os.path.exists(zip_name):
+    extracted_dir = "linkvertise_tool"
+    if os.path.exists(zip_name) and not os.path.exists(extracted_dir):
         try:
             with zipfile.ZipFile(zip_name, 'r') as zip_ref:
-                zip_ref.extractall("linkvertise_tool")
+                zip_ref.extractall(extracted_dir)
             print("Successfully extracted Linkvertise tool folder.")
         except Exception as e:
             print(f"Error extracting zip: {e}")
@@ -111,21 +112,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_time = asyncio.get_event_loop().time()
         extracted_result = ""
         
-        # اختيار الأداة والملف المناسب بناءً على الرابط
-        cmd = ["python", "main.py", user_text]
-        if "linkvertise" in user_text.lower() or "link-to.net" in user_text.lower():
+        # تحديد الأداة المناسبة بناءً على نوع الرابط
+        is_linkvertise = "linkvertise" in user_text.lower() or "link-to.net" in user_text.lower()
+        
+        cmd = []
+        if is_linkvertise:
+            # البحث عن ملف البايثون داخل المجلد المفكوك أو استخدام link_generator.py
             if os.path.exists("link_generator.py"):
                 cmd = ["python", "link_generator.py", user_text]
             else:
-                # البحث داخل المجلد المفكوك من الملف المضغوط
                 extracted_dir = "linkvertise_tool"
+                script_found = False
                 if os.path.exists(extracted_dir):
-                    # البحث عن أول ملف بايثون رئيسي داخل المجلد المضغوط
                     for root, dirs, files in os.walk(extracted_dir):
                         for file in files:
                             if file.endswith(".py"):
                                 cmd = ["python", os.path.join(root, file), user_text]
+                                script_found = True
                                 break
+                        if script_found:
+                            break
+                if not cmd:
+                    cmd = ["python", "main.py", user_text]
+        else:
+            # روابط دلتا وباقي المواقع
+            cmd = ["python", "main.py", user_text]
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -142,7 +153,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         extracted_result = line.strip()
                         break
             if not extracted_result:
-                # إذا لم يجد كلمة مفتاحية، يأخذ آخر سطر نظيف من الـ output
                 lines = [l.strip() for l in output_text.splitlines() if l.strip() and not l.startswith("Traceback") and "127.0.0.1" not in l]
                 if lines:
                     extracted_result = lines[-1]
