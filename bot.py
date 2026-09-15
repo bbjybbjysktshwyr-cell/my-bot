@@ -3,6 +3,8 @@ import sys
 import json
 import asyncio
 import subprocess
+import urllib.parse
+import urllib.request
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
@@ -103,35 +105,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if is_linkvertise:
             try:
-                process = await asyncio.create_subprocess_exec(
-                    "python", "-m", "linkvertisebypass.cli", user_text,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
+                api_url = f"https://bypass.pmh.workers.dev/?url={urllib.parse.quote(user_text)}"
+                req = urllib.request.Request(
+                    api_url, 
+                    headers={'User-Agent': 'Mozilla/5.0'}
                 )
-                stdout, stderr = await process.communicate()
-                output_text = stdout.decode('utf-8', errors='ignore').strip()
-                error_text = stderr.decode('utf-8', errors='ignore').strip()
                 
-                if error_text and not output_text:
-                    extracted_result = f"ERROR: {error_text[:300]}"
-                else:
-                    try:
-                        data = json.loads(output_text)
-                        if isinstance(data, dict):
-                            extracted_result = data.get("url") or data.get("destination") or data.get("result") or ""
-                    except json.JSONDecodeError:
-                        pass
-                        
-                    if not extracted_result:
-                        for line in output_text.splitlines():
-                            if "http://" in line or "https://" in line:
-                                if user_text not in line:
-                                    extracted_result = line.strip()
-                                    break
-                        if not extracted_result and output_text:
-                            extracted_result = output_text[:300]
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    res_data = json.loads(response.read().decode())
+                    if isinstance(res_data, dict):
+                        extracted_result = res_data.get("destination") or res_data.get("url") or res_data.get("result") or ""
+                
+                if not extracted_result:
+                    extracted_result = "فشل استخراج الرابط من الـ API، تأكد من صحة الرابط."
             except Exception as e:
-                extracted_result = f"EXC: {str(e)}"
+                extracted_result = f"خطأ في الاتصال: {str(e)}"
         else:
             cmd = ["python", "main.py", user_text]
             try:
@@ -159,11 +147,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         try:
             await status_msg.delete()
-        except:
+        : except:
             pass
 
         if extracted_result:
-            if not extracted_result.startswith("ERROR:") and not extracted_result.startswith("EXC:"):
+            if not extracted_result.startswith("خطأ") and not extracted_result.startswith("EXC:"):
                 successful_requests_count += 1
             result_message = (
                 f"✅ **النتيجة المستخرجة:**\n`{extracted_result}`\n\n"
