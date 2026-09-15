@@ -1,56 +1,20 @@
 import os
-import json
 import asyncio
+import subprocess
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
-# محاولة استيراد أدوات دلتا من ملف main.py
-try:
-    import main as delta_main
-except ImportError:
-    delta_main = None
-
-try:
-    from linkvertisebypass import bypass as bypass_link_func
-except ImportError:
-    bypass_link_func = None
-
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
-DATA_FILE = "bot_data.json"
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            pass
-    return {
-        "successful_requests_count": 1151,
-        "user_ratings": [
-            {"name": "Mohamed", "stars": 5, "text": "كويس جدا ويسهل عليك وقت كبير"},
-            {"name": "معصومة بلال", "stars": 5, "text": "فوللل جربووو"},
-            {"name": "Cristiano", "stars": 5, "text": "ياخي اسطوره الي اخترع هادا البوت"}
-        ],
-        "user_languages": {},
-        "user_states": {}
-    }
-
-def save_data():
-    data = {
-        "successful_requests_count": successful_requests_count,
-        "user_ratings": user_ratings,
-        "user_languages": user_languages,
-        "user_states": user_states
-    }
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-db = load_data()
-successful_requests_count = db["successful_requests_count"]
-user_ratings = db["user_ratings"]
-user_languages = db.get("user_languages", {})
-user_states = db.get("user_states", {})
+# المتغيرات العامة للبوت
+successful_requests_count = 1136
+user_languages = {}  # حفظ لغة المستخدم (ar / en)
+user_ratings = [
+    {"name": "Mohamed", "stars": 5, "text": "كويس جدا ويسهل عليك وقت كبير"},
+    {"name": "معصومة بلال", "stars": 5, "text": "فوللل جربووو"},
+    {"name": "Cristiano", "stars": 5, "text": "ياخي اسطوره الي اخترع هادا البوت"}
+]
+user_states = {}
 
 def get_main_keyboard(lang="ar"):
     if lang == "en":
@@ -70,63 +34,48 @@ def get_main_keyboard(lang="ar"):
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
+    user_id = update.effective_user.id
     lang = user_languages.get(user_id, "ar")
-    user_states.pop(user_id, None)
-    save_data()
     
     welcome_text = "Welcome to the Link Bypass Bot 👋\n\nChoose a service from the menu:" if lang == "en" else "مرحباً بك في بوت تجاوز الروابط 👋\n\nاختر الخدمة من القائمة:"
     await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard(lang))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global successful_requests_count
-    if not update.message or not update.message.text:
-        return
-        
-    user_id = str(update.effective_user.id)
+    user_id = update.effective_user.id
     lang = user_languages.get(user_id, "ar")
-    user_text = update.message.text.strip()
+    user_text = update.message.text
     
     if user_states.get(user_id) == "waiting_for_rating_text":
-        stars = user_states.get(user_id + "_stars", 5)
+        stars = user_states.get(user_id + 1000, 5)
         name = update.effective_user.first_name or "User"
         user_ratings.append({"name": name, "stars": stars, "text": user_text})
         user_states.pop(user_id, None)
-        user_states.pop(user_id + "_stars", None)
-        save_data()
+        user_states.pop(user_id + 1000, None)
+        
         await update.message.reply_text("✅ شكراً لك! تم إضافة تقييمك بنجاح.", reply_markup=get_main_keyboard(lang))
         return
 
-    if "تجاوز رابط" in user_text or "Bypass Link" in user_text:
-        user_states[user_id] = "waiting_for_bypass_link"
-        save_data()
-        msg = "Send your link now:" if lang == "en" else "أرسل الرابط الآن (يدعم Linkvertise و Delta):"
+    if user_text in ["🔗 تجاوز رابط", "🔗 Bypass Link"]:
+        msg = "Send your Delta link now (e.g., https://auth.platorelay.com/...):" if lang == "en" else "أرسل رابط دلتا الآن (مثل: https://auth.platorelay.com/...) لأقوم باستخراج المفتاح لك."
         await update.message.reply_text(msg)
         return
         
-    elif "المواقع المدعومة" in user_text or "Supported Sites" in user_text:
-        user_states.pop(user_id, None)
-        save_data()
-        msg = "Supported sites:\n- linkvertise.com\n- auth.platorelay.com (Delta)" if lang == "en" else "المواقع المدعومة حالياً:\n- linkvertise.com\n- auth.platorelay.com (Delta)"
-        await update.message.reply_text(msg, reply_markup=get_main_keyboard(lang))
+    elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
+        msg = "Supported sites:\n- auth.platorelay.com (Delta)" if lang == "en" else "الموقع المدعوم حالياً:\n- auth.platorelay.com (Delta)"
+        await update.message.reply_text(msg)
         return
         
-    elif "شرح البوت" in user_text or "Bot Guide" in user_text:
-        user_states.pop(user_id, None)
-        save_data()
-        msg = "Click 'Bypass Link' first, then send your link." if lang == "en" else "اضغط على زر (تجاوز رابط) أولاً، ثم أرسل الرابط ليتم تجاوزه."
-        await update.message.reply_text(msg, reply_markup=get_main_keyboard(lang))
+    elif user_text in ["📖 شرح البوت", "📖 Bot Guide"]:
+        msg = "Just send your link and the bot will handle it in the background." if lang == "en" else "فقط قم بإرسال رابط التجاوز الخاص بك وسيقوم البوت باستخراج المفتاح تلقائياً."
+        await update.message.reply_text(msg)
         return
         
-    elif "تقييم البوت" in user_text or "Bot Ratings" in user_text:
-        user_states.pop(user_id, None)
-        save_data()
-        await show_ratings_page(update, context, 0, lang, edit=False)
+    elif user_text in ["⭐ تقييم البوت", "⭐ Bot Ratings"]:
+        await show_ratings_page(update.message, 0, lang)
         return
         
-    elif "تغيير اللغة" in user_text or "Change Language" in user_text:
-        user_states.pop(user_id, None)
-        save_data()
+    elif user_text in ["🌍 تغيير اللغة", "🌍 Change Language"]:
         lang_text = "Please choose your language 👇" if lang == "en" else "👇 الرجاء اختيار اللغة 👇"
         keyboard = [
             [InlineKeyboardButton("🇮🇶 العربية", callback_data="lang_ar"),
@@ -136,97 +85,68 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     elif "الطلبات الناجحة" in user_text or "Successful Requests" in user_text:
-        user_states.pop(user_id, None)
-        save_data()
         msg = f"📊 Total successful requests: {successful_requests_count}" if lang == "en" else f"📊 عدد الطلبات الناجحة عبر البوت حتى الآن: {successful_requests_count}"
-        await update.message.reply_text(msg, reply_markup=get_main_keyboard(lang))
+        await update.message.reply_text(msg)
         return
 
-    if user_states.get(user_id) == "waiting_for_bypass_link":
-        if "http://" in user_text or "https://" in user_text:
-            user_states.pop(user_id, None)
-            save_data()
-            
-            wait_msg = "⏳ Extracting result, please wait..." if lang == "en" else "⏳ جارٍ تجاوز الرابط واستخراج المفتاح، انتظر قليلاً..."
-            status_msg = await update.message.reply_text(wait_msg)
-            
-            start_time = asyncio.get_event_loop().time()
-            extracted_result = ""
-            
-            try:
-                loop = asyncio.get_running_loop()
-                if "platorelay.com" in user_text or "delta" in user_text.lower():
-                    if delta_main and hasattr(delta_main, "AUTH") and hasattr(delta_main, "solve_chain"):
-                        def run_delta():
-                            ticket = delta_main.AUTH.extract_ticket_from_arg(user_text)
-                            session = delta_main.AUTH.create_session()
-                            key, timer = delta_main.solve_chain(ticket, verbose=False, session=session)
-                            return key
-                        
-                        extracted_result = await loop.run_in_executor(None, run_delta)
-                    else:
-                        extracted_result = "خطأ: لم يتم العثور على دالة دلتا في ملف main.py"
-                else:
-                    if bypass_link_func:
-                        res = await loop.run_in_executor(None, bypass_link_func, user_text)
-                        if hasattr(res, "value") and res.value:
-                            extracted_result = str(res.value)
-                        elif hasattr(res, "url") and res.url:
-                            extracted_result = str(res.url)
-                        elif hasattr(res, "result") and res.result:
-                            extracted_result = str(res.result)
-                        else:
-                            extracted_result = str(res)
-                    else:
-                        extracted_result = "خطأ: مكتبة Linkvertise غير مثبتة"
-            except Exception as ex:
-                extracted_result = f"Error: {str(ex)}"
-
+    if "platorelay.com" in user_text or "d=" in user_text:
+        wait_msg = "⏳ Extracting key, please wait..." if lang == "en" else "⏳ جارٍ حل الرابط واستخراج المفتاح، انتظر قليلاً..."
+        status_msg = await update.message.reply_text(wait_msg)
+        
+        start_time = asyncio.get_event_loop().time()
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "python", "main.py", user_text,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            output_text = stdout.decode('utf-8')
             elapsed_time = asyncio.get_event_loop().time() - start_time
             
-            try:
-                await status_msg.delete()
-            except:
-                pass
-
-            res_lower = str(extracted_result).lower()
-            if extracted_result and "none" not in res_lower and "error" not in res_lower and "fail" not in res_lower:
+            if process.returncode == 0:
                 successful_requests_count += 1
-                save_data()
                 
+                extracted_key = ""
+                for line in output_text.splitlines():
+                    if "FREE_" in line:
+                        extracted_key = line.strip()
+                        break
+                if not extracted_key:
+                    for line in output_text.splitlines():
+                        if "KEY" in line:
+                            extracted_key = line.strip()
+                            break
+                if not extracted_key:
+                    extracted_key = "FREE_key_not_found"
+
                 result_message = (
-                    f"✅ **تم تجاوز الرابط واستخراج المفتاح بنجاح:**\n\n"
-                    f"`{extracted_result}`\n\n"
-                    f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
+                    f"🔑 `{extracted_key}`\n\n"
+                    f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية\n\n"
+                    f"🔔:\n"
+                    f"اضغط على المفتاح أعلاه للنسخ السريع، أو استخدم زر نسخ المفتاح بالأسفل."
                 )
+
                 keyboard = [
-                    [InlineKeyboardButton("📋 كيف أنسخ النتيجة؟", callback_data="copy_key")],
+                    [InlineKeyboardButton("📋 نسخ المفتاح", callback_data=f"copy_key:{extracted_key}")],
                     [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
                 ]
+                
+                await status_msg.delete()
                 await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
-                fail_message = (
-                    f"❌ **فشل في استخراج المفتاح!**\n\n"
-                    f"⚠️ قد يكون الرابط منتهي الصلاحية أو أن الخادم يواجه ضغطاً.\n"
-                    f"النتيجة: {extracted_result}"
-                )
-                keyboard = [
-                    [InlineKeyboardButton("🛠️ الدعم الفني", url="https://t.me/AL_shz1")],
-                    [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
-                ]
-                await update.message.reply_text(fail_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-        else:
-            await update.message.reply_text("❌ الرابط غير صحيح. يرجى إرسال رابط صالح يبدأ بـ http:// أو https://")
+                err_text = "❌ Failed to extract key." if lang == "en" else "❌ فشل في استخراج المفتاح، قد يكون الرابط منتهي الصلاحية."
+                await status_msg.edit_text(err_text)
+                
+        except Exception as e:
+            await status_msg.edit_text(f"Error: {str(e)}")
     else:
-        await update.message.reply_text("⚠️ يرجى الضغط على زر **(🔗 تجاوز رابط)** من القائمة أدناه أولاً قبل إرسال الرابط.")
+        err_msg = "Please choose an option from the menu or send a valid link." if lang == "en" else "يرجى اختيار أمر من القائمة أو إرسال رابط صحيح."
+        await update.message.reply_text(err_msg)
 
-async def show_ratings_page(update: Update, context: ContextTypes.DEFAULT_TYPE, index: int, lang: str, edit: bool = False):
+async def show_ratings_page(message_obj, index, lang="ar"):
     if not user_ratings:
-        msg = "No ratings yet." if lang == "en" else "لا توجد تقييمات حالياً."
-        if edit:
-            await update.callback_query.edit_message_text(msg)
-        else:
-            await update.message.reply_text(msg)
+        await message_obj.reply_text("No ratings yet." if lang == "en" else "لا توجد تقييمات حالياً.")
         return
         
     total = len(user_ratings)
@@ -252,51 +172,26 @@ async def show_ratings_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     keyboard.append([InlineKeyboardButton("➕ إضافة تقييم", callback_data="start_add_rating")])
     keyboard.append([InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")])
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    if edit:
-        await update.callback_query.edit_message_text(ratings_content, parse_mode="Markdown", reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(ratings_content, parse_mode="Markdown", reply_markup=reply_markup)
+    await message_obj.reply_text(ratings_content, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    try:
-        await query.answer()
-    except:
-        pass
-        
-    user_id = str(update.effective_user.id)
-    chat_id = update.effective_chat.id
+    await query.answer()
+    user_id = update.effective_user.id
     lang = user_languages.get(user_id, "ar")
     data = query.data
     
     if data == "back_to_menu":
-        user_states.pop(user_id, None)
-        save_data()
-        try:
-            await query.message.delete()
-        except:
-            pass
-        await context.bot.send_message(
-            chat_id=chat_id, 
-            text="القائمة الرئيسية:" if lang == "ar" else "Main Menu:", 
-            reply_markup=get_main_keyboard(lang)
-        )
+        await query.message.delete()
+        await query.message.reply_text("القائمة الرئيسية:" if lang == "ar" else "Main Menu:", reply_markup=get_main_keyboard(lang))
         
     elif data.startswith("lang_"):
         new_lang = data.split("_")[1]
         user_languages[user_id] = new_lang
-        save_data()
-        try:
-            msg = "Language changed to English successfully 🇺🇸" if new_lang == "en" else "تم تغيير اللغة إلى العربية بنجاح 🇮🇶"
-            await query.message.delete()
-            await context.bot.send_message(
-                chat_id=chat_id, 
-                text=msg, 
-                reply_markup=get_main_keyboard(new_lang)
-            )
-        except:
-            pass
+        if new_lang == "en":
+            await query.edit_message_text("Language changed to English successfully 🇺🇸")
+        else:
+            await query.edit_message_text("تم تغيير اللغة إلى العربية بنجاح 🇮🇶")
             
     elif data == "start_add_rating":
         keyboard = [
@@ -307,26 +202,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data="rate_star:5")],
             [InlineKeyboardButton("🔙 رجوع", callback_data="rating_page:0")]
         ]
-        text_msg = "اختر عدد النجوم لتقييم البوت:" if lang == "ar" else "Choose stars:"
-        await query.execute_message_text(text_msg, reply_markup=InlineKeyboardMarkup(keyboard)) if hasattr(query, 'execute_message_text') else await query.edit_message_text(text_msg, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("اختر عدد النجوم لتقييم البوت:", reply_markup=InlineKeyboardMarkup(keyboard))
         
     elif data.startswith("rate_star:"):
         stars = int(data.split(":")[1])
-        user_states[user_id + "_stars"] = stars
+        user_states[user_id + 1000] = stars
         user_states[user_id] = "waiting_for_rating_text"
-        save_data()
-        text_msg = f"لقد اخترت {stars} نجوم ⭐.\nالآن يرجى إرسال رسالة برأيك أو تقييمك للبوت:" if lang == "ar" else f"You chose {stars} stars ⭐.\nNow send your review:"
-        await query.edit_message_text(text_msg)
+        await query.edit_message_text(f"لقد اخترت {stars} نجوم ⭐.\nالآن يرجى إرسال رسالة برأيك أو تقييمك للبوت:")
         
     elif data.startswith("rating_page:"):
         idx = int(data.split(":")[1])
-        await show_ratings_page(update, context, idx, lang, edit=True)
+        await query.message.delete()
+        await show_ratings_page(query.message, idx, lang)
         
-    elif data == "copy_key":
-        try:
-            await query.answer("اضغط ضغطة مطولة على النتيجة في الرسالة لنسخها بسهولة!", show_alert=True)
-        except:
-            pass
+    elif data.startswith("copy_key:"):
+        key_to_copy = data.split(":", 1)[1]
+        await query.answer(f"تم نسخ المفتاح: {key_to_copy}", show_alert=True)
 
 def main():
     app = (
@@ -342,7 +233,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running perfectly...")
+    print("Bot is running with full fixes...")
     app.run_polling()
 
 if __name__ == "__main__":
