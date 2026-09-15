@@ -67,7 +67,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
-        msg = "Supported sites:\n- auth.platorelay.com (Delta)\n- linkvertise.com" if lang == "en" else "الموqاقع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com"
+        msg = "Supported sites:\n- auth.platorelay.com (Delta)\n- linkvertise.com" if lang == "en" else "المواقع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com"
         await update.message.reply_text(msg)
         return
         
@@ -103,29 +103,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         is_linkvertise = "linkvertise" in user_text.lower() or "link-to.net" in user_text.lower()
         
-        # اختيار طريقة الاستخراج المناسبة
         if is_linkvertise:
             try:
-                # محاولة استيراد الأداة الجديدة واستخدامها برمجياً
-                from linkvertisebypass import bypass as lv_bypass
-                # بعض مكتبات zribe تستخدم دالة غير مباشرة، سنستدعيها عبر asyncio لتجنب حظر البوت
-                extracted_result = await asyncio.to_thread(lv_bypass, user_text)
-            except Exception as e:
-                # إن لم تنجح الطريقة المباشرة، نجرب تشغيلها كأمر بايثون مستقل
-                try:
-                    process = await asyncio.create_subprocess_exec(
-                        "python", "-c", f"import linkvertisebypass; print(linkvertisebypass.bypass('{user_text}'))",
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    )
-                    stdout, stderr = await process.communicate()
-                    res = stdout.decode('utf-8', errors='ignore').strip()
-                    if res and "None" not in res:
-                        extracted_result = res
-                except Exception:
-                    pass
+                process = await asyncio.create_subprocess_exec(
+                    "python", "python/linkvertisebypass/cli.py", user_text,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                res = stdout.decode('utf-8', errors='ignore').strip()
+                if res:
+                    for line in res.splitlines():
+                        if "http://" in line or "https://" in line:
+                            if user_text not in line:
+                                extracted_result = line.strip()
+                                break
+                    if not extracted_result:
+                        extracted_result = res.splitlines()[-1]
+            except Exception:
+                pass
         else:
-            # روابط دلتا وباقي المواقع
             cmd = ["python", "main.py", user_text]
             try:
                 process = await asyncio.create_subprocess_exec(
@@ -306,7 +303,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with updated zribe linkvertise support...")
+    print("Bot is running with full project structure...")
     app.run_polling()
 
 if __name__ == "__main__":
