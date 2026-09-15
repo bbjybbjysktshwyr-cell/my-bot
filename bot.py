@@ -9,7 +9,7 @@ try:
 except ImportError:
     bypass_link_func = None
 
-# محاولة استدعاء أدوات دلتا أو ملفات المصادقة الموجودة في مجلدك
+# محاولة استدعاء أدوات دلتا أو ملفات المصادقة
 try:
     import auth_client
 except ImportError:
@@ -31,7 +31,7 @@ def load_data():
         except:
             pass
     return {
-        "successful_requests_count": 1147,
+        "successful_requests_count": 1151,
         "user_ratings": [
             {"name": "Mohamed", "stars": 5, "text": "كويس جدا ويسهل عليك وقت كبير"},
             {"name": "معصومة بلال", "stars": 5, "text": "فوللل جربووو"},
@@ -160,13 +160,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 loop = asyncio.get_running_loop()
-                # التحقق إذا كان الرابط يخص دلتا واستدعاء الملفات الخاصة به
                 if "platorelay.com" in user_text or "delta" in user_text.lower():
                     if auth_client and hasattr(auth_client, "bypass"):
                         res = await loop.run_in_executor(None, auth_client.bypass, user_text)
                         extracted_result = str(res)
                     else:
-                        # تشغيل ملف auth_client.py أو server.py كمجلد أو أمر خارجي
                         process = await asyncio.create_subprocess_exec(
                             "python3", "auth_client.py", user_text,
                             stdout=asyncio.subprocess.PIPE,
@@ -177,7 +175,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if not extracted_result:
                             extracted_result = stderr.decode('utf-8', errors='ignore').strip()
                 else:
-                    # تجاوز Linkvertise بالطريقة العادية
                     if bypass_link_func:
                         res = await loop.run_in_executor(None, bypass_link_func, user_text)
                         if hasattr(res, "value") and res.value:
@@ -305,8 +302,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_data()
         try:
             msg = "Language changed to English successfully 🇺🇸" if new_lang == "en" else "تم تغيير اللغة إلى العربية بنجاح 🇮🇶"
-            await query.edit_message_text(msg)
-            await context.bot.send_message(chat_id=chat_id, text="Main Menu:" if new_lang == "en" else "القائمة الرئيسية:", reply_markup=get_main_keyboard(new_lang))
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=chat_id, 
+                text=msg, 
+                reply_markup=get_main_keyboard(new_lang)
+            )
         except:
             pass
             
@@ -319,16 +320,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data="rate_star:5")],
             [InlineKeyboardButton("🔙 رجوع", callback_data="rating_page:0")]
         ]
-        await query.edit_message_text("اختر عدد النجوم لتقييم البوت:" if lang == "ar" else "Choose stars:", reply_markup=InlineKeyboardMarkup(keyboard))
+        text_msg = "اختر عدد النجوم لتقييم البوت:" if lang == "ar" else "Choose stars:"
+        await query.edit_message_text(text_msg, reply_markup=InlineKeyboardMarkup(keyboard))
         
     elif data.startswith("rate_star:"):
         stars = int(data.split(":")[1])
         user_states[user_id + "_stars"] = stars
         user_states[user_id] = "waiting_for_rating_text"
         save_data()
-        await query.edit_message_text(
-            f"لقد اخترت {stars} نجوم ⭐.\nالآن يرجى إرسال رسالة برأيك أو تقييمك للبوت:" if lang == "ar" else f"You chose {stars} stars ⭐.\nNow send your review:"
-        )
+        text_msg = f"لقد اخترت {stars} نجوم ⭐.\nالآن يرجى إرسال رسالة برأيك أو تقييمك للبوت:" if lang == "ar" else f"You chose {stars} stars ⭐.\nNow send your review:"
+        await query.edit_message_text(text_msg)
         
     elif data.startswith("rating_page:"):
         idx = int(data.split(":")[1])
@@ -354,7 +355,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with dual support for Linkvertise and Delta...")
+    print("Bot is running perfectly...")
     app.run_polling()
 
 if __name__ == "__main__":
