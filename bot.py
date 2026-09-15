@@ -1,11 +1,14 @@
 import os
 import sys
-import json
 import asyncio
-import urllib.parse
-import urllib.request
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
+
+# استدعاء ملفاتك والأدوات الموجودة في المستودع لديك
+try:
+    import main as bypass_tool  # استدعاء ملف الفك الأساسي لديك
+except ImportError:
+    bypass_tool = None
 
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 
@@ -36,37 +39,33 @@ def get_main_keyboard(lang="ar"):
         ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-def fetch_bypassed_link(url: str) -> str:
-    """استخدام الـ API الخارجي مع معالجة دقيقة للرابط والترويسات"""
+async def run_local_tools(url: str) -> str:
+    """تشغيل الأدوات المحلية الموجودة في مستودعك لاستخراج الرابط"""
     try:
-        encoded_url = urllib.parse.quote(url, safe='')
-        api_url = f"https://bypass.bot.nu/bypass2?url={encoded_url}"
-        
-        req = urllib.request.Request(
-            api_url, 
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json'
-            }
+        # تشغيل ملف main.py محلياً عبر أمر بايثون داخلي يمرر الرابط
+        cmd = [sys.executable, "main.py", url]
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
+        stdout, stderr = await process.communicate()
+        output = stdout.decode('utf-8', errors='ignore').strip()
         
-        with urllib.request.urlopen(req, timeout=12) as response:
-            raw_data = response.read().decode('utf-8')
-            data = json.loads(raw_data)
+        # البحث عن رابط ناتج صالح داخل مخرجات الأدوات
+        for line in output.splitlines():
+            line = line.strip()
+            if line.startswith("http://") or line.startswith("https://"):
+                if url not in line:  # التأكد أنه ليس الرابط الأصلي المرسل
+                    return line
+                    
+        # إذا لم يطبع الرابط مباشرة، نرجع آخر مخرجات الأداة إذا كانت مفتاحاً أو نصاً صالحاً
+        if output and len(output) > 5 and "http" not in output:
+            return output
             
-            # فحص المفاتيح المحتملة التي قد تحتوي على الرابط المستهدف
-            for key in ["destination", "result", "url", "bypass"]:
-                if key in data and data[key]:
-                    val = str(data[key])
-                    if val.startswith("http"):
-                        return val
-            
-            # إذا كان الرد عبارة عن نص الرابط مباشرة
-            if raw_data.startswith("http"):
-                return raw_data.strip()
-                
     except Exception as e:
-        print(f"Bypass API Error: {e}")
+        print(f"Tool Execution Error: {e}")
+        
     return ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -128,13 +127,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if "http://" in user_text or "https://" in user_text:
-        wait_msg = "⏳ جارٍ حل الرابط واستخراج النتيجة..."
+        wait_msg = "⏳ جارٍ تشغيل الأدوات واستخراج النتيجة..."
         status_msg = await update.message.reply_text(wait_msg)
         
         start_time = asyncio.get_event_loop().time()
         
-        # استدعاء دالة جلب الرابط المستهدف
-        extracted_result = await asyncio.to_thread(fetch_bypassed_link, user_text)
+        # استدعاء الأدوات المحلية المرفوعة في المستودع
+        extracted_result = await run_local_tools(user_text)
             
         elapsed_time = asyncio.get_event_loop().time() - start_time
         
@@ -143,12 +142,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-        if extracted_result and extracted_result.startswith("http"):
+        if extracted_result:
             successful_requests_count += 1
             last_results[user_id] = extracted_result
 
             result_message = (
-                f"✅ **النتيجة المستخرجة:**\n`{extracted_result}`\n\n"
+                f"✅ **النتيجة المستخرجة بواسطة أدواتك:**\n`{extracted_result}`\n\n"
                 f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
             )
             keyboard = [
@@ -157,7 +156,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            fail_message = "❌ عذراً، لم يتم استخراج الرابط أو أن الرابط غير مدعوم حالياً."
+            fail_message = "❌ عذراً، لم تتمكن الأدوات المحلية من استخراج النتيجة أو أن الرابط يتطلب تدخلاً."
             keyboard = [[InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_menu")]]
             await update.message.reply_text(fail_message, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
@@ -303,7 +302,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with enhanced API fetching...")
+    print("Bot is running and executing local tools from repository...")
     app.run_polling()
 
 if __name__ == "__main__":
