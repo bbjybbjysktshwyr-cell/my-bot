@@ -18,7 +18,7 @@ user_ratings = [
     {"name": "Cristiano", "stars": 5, "text": "ياخي اسطوره الي اخترع هادا البوت"}
 ]
 user_states = {}
-temp_results = {}  # تخزين مؤقت للنتائج لتجنب مشاكل الأزرار
+temp_results = {}
 
 def get_main_keyboard(lang="ar"):
     if lang == "en":
@@ -68,7 +68,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
-        msg = "Supported sites:\n- auth.platorelay.com (Delta)\n- linkvertise.com" if lang == "en" else "المواقع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com"
+        msg = "Supported sites:\n- auth.platorelay.com (Delta)\n- linkvertise.com" if lang == "en" else "الموqаع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com"
         await update.message.reply_text(msg)
         return
         
@@ -105,27 +105,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_linkvertise = "linkvertise" in user_text.lower() or "link-to.net" in user_text.lower() or "linkvertise.download" in user_text.lower()
         
         if is_linkvertise:
-            try:
-                api_url = f"https://bypass.bot.nu/bypass2?url={urllib.parse.quote(user_text)}"
-                req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
-                
-                with urllib.request.urlopen(req, timeout=12) as response:
-                    res_text = response.read().decode('utf-8')
-                    res_data = json.loads(res_text)
-                    if isinstance(res_data, dict):
-                        result_obj = res_data.get("result")
-                        if isinstance(result_obj, dict):
-                            extracted_result = result_obj.get("destination") or result_obj.get("url") or result_obj.get("target") or ""
-                        elif isinstance(result_obj, str):
-                            extracted_result = result_obj
-                            
-                        if not extracted_result:
-                            extracted_result = res_data.get("destination") or res_data.get("url") or ""
-                
-                if not extracted_result:
-                    extracted_result = f"فشل استخراج الرابط من السيرفر."
-            except Exception as e:
-                extracted_result = f"خطأ في الاتصال: {str(e)}"
+            # محاولات متعددة لعدة مصادر API لتجاوز الروابط بدقة
+            apis = [
+                f"https://bypass.bot.nu/bypass2?url={urllib.parse.quote(user_text)}",
+                f"https://api.bypass.vip/bypass?url={urllib.parse.quote(user_text)}"
+            ]
+            
+            for api_url in apis:
+                try:
+                    req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                    with urllib.request.urlopen(req, timeout=10) as response:
+                        res_text = response.read().decode('utf-8')
+                        res_data = json.loads(res_text)
+                        if isinstance(res_data, dict):
+                            result_obj = res_data.get("result")
+                            if isinstance(result_obj, dict):
+                                extracted_result = result_obj.get("destination") or result_obj.get("url") or result_obj.get("target") or ""
+                            elif isinstance(result_obj, str):
+                                extracted_result = result_obj
+                                
+                            if not extracted_result:
+                                extracted_result = res_data.get("destination") or res_data.get("url") or ""
+                    
+                    if extracted_result and not extracted_result.startswith("خطأ"):
+                        break
+                except Exception:
+                    continue
+            
+            if not extracted_result:
+                extracted_result = "فشل تخطي الرابط، تأكد من صحة الرابط أو جرب رابطاً آخر."
         else:
             cmd = ["python", "main.py", user_text]
             try:
@@ -156,11 +164,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-        if extracted_result:
-            if not extracted_result.startswith("خطأ") and not extracted_result.startswith("EXC:") and not extracted_result.startswith("فشل"):
-                successful_requests_count += 1
-            
-            # حفظ النتيجة في الذاكرة المؤقتة لتجنب مشاكل حجم الزر
+        if extracted_result and not extracted_result.startswith("فشل") and not extracted_result.startswith("EXC:"):
+            successful_requests_count += 1
             result_id = str(hash(extracted_result))
             temp_results[result_id] = extracted_result
 
@@ -174,7 +179,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            fail_message = "❌ عذراً، فشل استخراج الرابط. تأكد من صحة الرابط."
+            fail_message = f"❌ {extracted_result if extracted_result else 'عذراً، لم يتم العثور على النتيجة.'}"
             keyboard = [[InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]]
             await update.message.reply_text(fail_message, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
@@ -314,7 +319,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running perfectly and securely...")
+    print("Bot is running with reliable multi-API bypass handler...")
     app.run_polling()
 
 if __name__ == "__main__":
