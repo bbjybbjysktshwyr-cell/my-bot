@@ -18,6 +18,7 @@ user_ratings = [
     {"name": "Cristiano", "stars": 5, "text": "ياخي اسطوره الي اخترع هادا البوت"}
 ]
 user_states = {}
+temp_results = {}  # تخزين مؤقت للنتائج لتجنب مشاكل الأزرار
 
 def get_main_keyboard(lang="ar"):
     if lang == "en":
@@ -105,18 +106,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if is_linkvertise:
             try:
-                # استخدام API موثوق وخاص بـ Linkvertise
                 api_url = f"https://bypass.bot.nu/bypass2?url={urllib.parse.quote(user_text)}"
-                req = urllib.request.Request(
-                    api_url, 
-                    headers={'User-Agent': 'Mozilla/5.0'}
-                )
+                req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
                 
                 with urllib.request.urlopen(req, timeout=12) as response:
                     res_text = response.read().decode('utf-8')
                     res_data = json.loads(res_text)
                     if isinstance(res_data, dict):
-                        # البحث في عدة احتمالات لمكان الرابط الناتج
                         result_obj = res_data.get("result")
                         if isinstance(result_obj, dict):
                             extracted_result = result_obj.get("destination") or result_obj.get("url") or result_obj.get("target") or ""
@@ -127,7 +123,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             extracted_result = res_data.get("destination") or res_data.get("url") or ""
                 
                 if not extracted_result:
-                    extracted_result = f"استجابة غير متوقعة من السيرفر: {res_text[:100]}"
+                    extracted_result = f"فشل استخراج الرابط من السيرفر."
             except Exception as e:
                 extracted_result = f"خطأ في الاتصال: {str(e)}"
         else:
@@ -161,14 +157,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
         if extracted_result:
-            if not extracted_result.startswith("خطأ") and not extracted_result.startswith("EXC:") and not extracted_result.startswith("استجابة"):
+            if not extracted_result.startswith("خطأ") and not extracted_result.startswith("EXC:") and not extracted_result.startswith("فشل"):
                 successful_requests_count += 1
+            
+            # حفظ النتيجة في الذاكرة المؤقتة لتجنب مشاكل حجم الزر
+            result_id = str(hash(extracted_result))
+            temp_results[result_id] = extracted_result
+
             result_message = (
                 f"✅ **النتيجة المستخرجة:**\n`{extracted_result}`\n\n"
                 f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
             )
             keyboard = [
-                [InlineKeyboardButton("📋 نسخ النتيجة", callback_data=f"copy_key:{extracted_result}")],
+                [InlineKeyboardButton("📋 نسخ النتيجة", callback_data=f"copy_res:{result_id}")],
                 [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
             ]
             await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -291,10 +292,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
         
-    elif data.startswith("copy_key:"):
-        key_to_copy = data.split(":", 1)[1]
+    elif data.startswith("copy_res:"):
+        res_id = data.split(":", 1)[1]
+        real_result = temp_results.get(res_id, "تم النسخ بنجاح!")
         try:
-            await query.answer(f"تم النسخ بنجاح: {key_to_copy}", show_alert=True)
+            await query.answer(f"النتيجة: {real_result[:50]}", show_alert=True)
         except Exception:
             pass
 
@@ -312,7 +314,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running perfectly...")
+    print("Bot is running perfectly and securely...")
     app.run_polling()
 
 if __name__ == "__main__":
