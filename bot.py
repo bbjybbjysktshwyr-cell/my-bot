@@ -1,12 +1,8 @@
 import os
-import sys
 import asyncio
 import subprocess
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
-
-# أضف مسار الأداة ليتمكن بايثون من قراءتها واستيرادها
-sys.path.append(os.path.abspath("python"))
 
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 
@@ -106,9 +102,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_linkvertise:
             try:
                 process = await asyncio.create_subprocess_exec(
-                    "python", "python/linkvertisebypass/cli.py", user_text,
+                    "python", "linkvertisebypass/cli.py", user_text,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
+                    stderr=subprocess.PIPE,
+                    cwd="python"
                 )
                 stdout, stderr = await process.communicate()
                 res = stdout.decode('utf-8', errors='ignore').strip()
@@ -303,7 +300,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running with full project structure...")
+    print("Bot is running perfectly...")
     app.run_polling()
 
 if __name__ == "__main__":
