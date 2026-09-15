@@ -4,21 +4,16 @@ import asyncio
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
+# محاولة استيراد أدوات دلتا من ملف main.py
+try:
+    import main as delta_main
+except ImportError:
+    delta_main = None
+
 try:
     from linkvertisebypass import bypass as bypass_link_func
 except ImportError:
     bypass_link_func = None
-
-# محاولة استدعاء أدوات دلتا أو ملفات المصادقة
-try:
-    import auth_client
-except ImportError:
-    auth_client = None
-
-try:
-    import server
-except ImportError:
-    server = None
 
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 DATA_FILE = "bot_data.json"
@@ -152,7 +147,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_states.pop(user_id, None)
             save_data()
             
-            wait_msg = "⏳ Extracting result, please wait..." if lang == "en" else "⏳ جارٍ تجاوز الرابط واستخراج النتيجة، انتظر قليلاً..."
+            wait_msg = "⏳ Extracting result, please wait..." if lang == "en" else "⏳ جارٍ تجاوز الرابط واستخراج المفتاح، انتظر قليلاً..."
             status_msg = await update.message.reply_text(wait_msg)
             
             start_time = asyncio.get_event_loop().time()
@@ -161,19 +156,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 loop = asyncio.get_running_loop()
                 if "platorelay.com" in user_text or "delta" in user_text.lower():
-                    if auth_client and hasattr(auth_client, "bypass"):
-                        res = await loop.run_in_executor(None, auth_client.bypass, user_text)
-                        extracted_result = str(res)
+                    if delta_main and hasattr(delta_main, "AUTH") and hasattr(delta_main, "solve_chain"):
+                        def run_delta():
+                            ticket = delta_main.AUTH.extract_ticket_from_arg(user_text)
+                            session = delta_main.AUTH.create_session()
+                            key, timer = delta_main.solve_chain(ticket, verbose=False, session=session)
+                            return key
+                        
+                        extracted_result = await loop.run_in_executor(None, run_delta)
                     else:
-                        process = await asyncio.create_subprocess_exec(
-                            "python3", "auth_client.py", user_text,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE
-                        )
-                        stdout, stderr = await process.communicate()
-                        extracted_result = stdout.decode('utf-8', errors='ignore').strip()
-                        if not extracted_result:
-                            extracted_result = stderr.decode('utf-8', errors='ignore').strip()
+                        extracted_result = "خطأ: لم يتم العثور على دالة دلتا في ملف main.py"
                 else:
                     if bypass_link_func:
                         res = await loop.run_in_executor(None, bypass_link_func, user_text)
@@ -186,15 +178,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         else:
                             extracted_result = str(res)
                     else:
-                        process = await asyncio.create_subprocess_exec(
-                            "python3", "-m", "linkvertisebypass", user_text,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE
-                        )
-                        stdout, stderr = await process.communicate()
-                        extracted_result = stdout.decode('utf-8', errors='ignore').strip()
+                        extracted_result = "خطأ: مكتبة Linkvertise غير مثبتة"
             except Exception as ex:
-                extracted_result = str(ex)
+                extracted_result = f"Error: {str(ex)}"
 
             elapsed_time = asyncio.get_event_loop().time() - start_time
             
@@ -203,13 +189,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
 
-            res_lower = extracted_result.lower()
-            if extracted_result and "unsupported" not in res_lower and "error" not in res_lower and "traceback" not in res_lower:
+            res_lower = str(extracted_result).lower()
+            if extracted_result and "none" not in res_lower and "error" not in res_lower and "fail" not in res_lower:
                 successful_requests_count += 1
                 save_data()
                 
                 result_message = (
-                    f"✅ **تم التجاوز بنجاح:**\n\n"
+                    f"✅ **تم تجاوز الرابط واستخراج المفتاح بنجاح:**\n\n"
                     f"`{extracted_result}`\n\n"
                     f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
                 )
@@ -220,8 +206,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 fail_message = (
-                    f"❌ **فشل في تجاوز الرابط!**\n\n"
-                    f"⚠️ الرابط غير مدعوم حالياً أو أن الأداة تتطلب تحديثاً."
+                    f"❌ **فشل في استخراج المفتاح!**\n\n"
+                    f"⚠️ قد يكون الرابط منتهي الصلاحية أو أن الخادم يواجه ضغطاً.\n"
+                    f"النتيجة: {extracted_result}"
                 )
                 keyboard = [
                     [InlineKeyboardButton("🛠️ الدعم الفني", url="https://t.me/AL_shz1")],
@@ -321,7 +308,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 رجوع", callback_data="rating_page:0")]
         ]
         text_msg = "اختر عدد النجوم لتقييم البوت:" if lang == "ar" else "Choose stars:"
-        await query.edit_message_text(text_msg, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.execute_message_text(text_msg, reply_markup=InlineKeyboardMarkup(keyboard)) if hasattr(query, 'execute_message_text') else await query.edit_message_text(text_msg, reply_markup=InlineKeyboardMarkup(keyboard))
         
     elif data.startswith("rate_star:"):
         stars = int(data.split(":")[1])
