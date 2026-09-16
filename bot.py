@@ -35,26 +35,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("أرسل رابط دلتا أو الرابط الثاني الآن:")
         return
     elif user_text in ["🌐 المواقع المدعومة"]:
-        await update.message.reply_text("🌐 المواقع المدعومة:\n1. روابط موقع دلتا (Delta)\n2. الموقع الثاني (Linkvertise وغيرها عبر الأداة)")
+        await update.message.reply_text("🌐 المواقع المدعومة:\n1. روابط موقع دلتا (عبر main.py)\n2. الموقع الثاني (عبر cli.py)")
         return
     elif user_text in ["📖 شرح البوت"]:
-        await update.message.reply_text("فقط قم بإرسال الرابط وسيقوم البوت بتشغيل أدوات الفك تلقائياً وإعطائك النتيجة.")
+        await update.message.reply_text("فقط قم بإرسال الرابط وسيقوم البوت باختيار الأداة المناسبة لتجاوزه تلقائياً.")
         return
     elif "الطلبات الناجحة" in user_text:
         await update.message.reply_text(f"📊 عدد الطلبات الناجحة حتى الآن: {successful_requests_count}")
         return
 
-    # معالجة الروابط (دلتا أو غيرها)
     if "http://" in user_text or "https://" in user_text:
-        status_msg = await update.message.reply_text("⏳ جارٍ فحص ومعالجة الرابط عبر أدوات الفك...")
+        status_msg = await update.message.reply_text("⏳ جارٍ فحص ومعالجة الرابط عبر الأداة المخصصة...")
         
         extracted_result = ""
         try:
-            process = await asyncio.create_subprocess_exec(
-                "python3", "cli.py", user_text,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            # التحقق مما إذا كان الرابط يخص دلتا أو الموقع الثاني
+            if "platorelay" in user_text.lower() or "delta" in user_text.lower():
+                process = await asyncio.create_subprocess_exec(
+                    "python3", "main.py", user_text,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+            else:
+                # تشغيل الموقع الثاني بطريقة صحيحة كموديول لتجنب خطأ الـ Import
+                process = await asyncio.create_subprocess_exec(
+                    "python3", "-m", "cli", user_text,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
             output_text = stdout.decode('utf-8', errors='ignore').strip()
             error_text = stderr.decode('utf-8', errors='ignore').strip()
@@ -79,7 +88,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-        if extracted_result and "❌" not in extracted_result and "لم يتم" not in extracted_result:
+        if extracted_result and "❌" not in extracted_result and "Traceback" not in extracted_result and "لم يتم" not in extracted_result:
             successful_requests_count += 1
             last_extracted_links[user_id] = extracted_result
             result_message = f"✅ **النتيجة المستخرجة:**\n`{extracted_result}`"
@@ -94,7 +103,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
     try:
-        await query.answer("تم بنجاح!", show_alert=True)
+        await query.answer("تم النسخ بنجاح!", show_alert=True)
     except:
         pass
 
@@ -103,7 +112,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    print("Bot is running...")
+    print("Bot is running perfectly...")
     app.run_polling()
 
 if __name__ == "__main__":
