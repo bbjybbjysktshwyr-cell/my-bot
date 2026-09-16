@@ -1,500 +1,297 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-# 用法: python main.py "<auth_url_or_ticket>" | ticket.txt | --generate N
-import sys
 import os
-import time
-import json
-import argparse
-import threading
-from concurrent.futures import ThreadPoolExecutor
+import sys
+import asyncio
+import subprocess
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
+BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 
-import auth_client as AUTH
-import link_generator as LG
+successful_requests_count = 1136
+user_languages = {}
+user_ratings = [
+    {"name": "Mohamed", "stars": 5, "text": "كويس جدا ويسهل عليك وقت كبير"},
+    {"name": "معصومة بلال", "stars": 5, "text": "فوللل جربووو"},
+    {"name": "Cristiano", "stars": 5, "text": "ياخي اسطوره الي اخترع هادا البوت"}
+]
+user_states = {}
+last_extracted_links = {}
 
-FALLBACK_SERVICES = [3]
-MAX_ROUNDS = 3
-MAX_ROUNDS_HARD_CAP = 12     # 12 轮，防死循环
-POLL_MAX_ATTEMPTS = 10       # about:blank 后轮询 key 的次数
-POLL_INTERVAL = 0.1          # 每次轮询间隔(秒)
-POLL_OVERLAP_DELAY = 0.05    # step 发出后多久开始并发轮询 key(重叠掉一个 RTT)
-STEP_THROTTLE_RETRIES = 2    # 遇到限流时重试次数
-STEP_THROTTLE_SLEEP = 2.0    # 限流退避休眠(秒)
-MIN_STEP_GAP = 5.0           # 相邻两次 step 的最小间隔(秒)
-
-
-# 计时器
-class Timer:
-    # 累计各阶段耗时
-    def __init__(self):
-        self.phases = {}  # 阶段名 -> 总秒数
-        self.t0 = None
-        self.current_phase = None
-        self.invalid_reason = None   # 若求解因"无效/过期链接"终止,记录上游原因
-
-    def start(self, phase):
-        # 开始计时一个阶段
-        if self.current_phase is not None:
-            self.stop()
-        self.current_phase = phase
-        self.t0 = time.time()
-
-    def stop(self):
-        # 停止当前阶段计时
-        if self.current_phase is not None and self.t0 is not None:
-            dt = time.time() - self.t0
-            self.phases[self.current_phase] = self.phases.get(self.current_phase, 0.0) + dt
-            self.current_phase = None
-            self.t0 = None
-
-    def add(self, name, seconds):
-        # 直接添加耗时
-        self.phases[name] = self.phases.get(name, 0.0) + seconds
-
-    def total(self):
-        return sum(self.phases.values())
-
-    def summary(self):
-        parts = []
-        for name, secs in sorted(self.phases.items(), key=lambda x: -x[1]):
-            pct = secs / self.total() * 100 if self.total() > 0 else 0
-            parts.append(f"    {name}: {secs:.1f}s ({pct:.0f}%)")
-        return '\n'.join(parts)
-
-    def __repr__(self):
-        return f"Timer({self.total():.1f}s total, {len(self.phases)} phases)"
-
-
-#验证码
-# 上游已取消图形验证码环节:step 的 captcha 字段不校验(null/任意值均可),
-# 旧版 captcha 服务已换成 orbit 类型、旧识别器失效,这里不再有识别步骤。
-# The far end dropped the picture captcha (the step captcha field is not
-# checked), so there is no recognition step any more.
-
-
-#Metadata->Service解析
-def resolve_service(ticket, session=None, verbose=True):
-    #从metadata获取service及checkpointCount（决定需要多少轮/步），返回 (service, checkpointCount)
-    svc, cp, valid, reason = resolve_meta(ticket, session=session, verbose=verbose)
-    return svc, cp
-
-
-def resolve_meta(ticket, session=None, verbose=True):
-    """一次 metadata 调用同时得到 (service, checkpointCount, valid, invalid_reason)
-    """
-    cp = None
-    try:
-        meta = AUTH.get_session_metadata(ticket, session=session)
-        if isinstance(meta, dict):
-            # 明确的无效/过期判定
-            if meta.get('success') is False and not meta.get('transient'):
-                msg = str(meta.get('message') or meta.get('error') or '').lower()
-                if any(m in msg for m in AUTH.INVALID_MARKERS):
-                    reason = str(meta.get('message') or meta.get('error') or 'invalid link')
-                    if verbose:
-                        print(f'  [meta] 无效链接: {reason}', flush=True)
-                    return None, cp, False, reason
-            data = meta.get('data', meta)
-            if isinstance(data, dict):
-                profile = data.get('activeRevenueProfile', {})
-                if isinstance(profile, dict) and 'service' in profile:
-                    svc = int(profile['service'])
-                    try:
-                        cpn = profile.get('checkpointCount')
-                        cp = int(cpn) if cpn else None
-                    except (TypeError, ValueError):
-                        cp = None
-                    if verbose:
-                        dur = data.get('duration', '?')
-                        print(f'  [meta] service={svc} checkpointCount={cp} duration={dur}h', flush=True)
-                    return svc, cp, True, None
-    except Exception as e:
-        if verbose:
-            print(f'  [meta] 获取失败: {e}', flush=True)
-    return None, cp, True, None
-
-
-#Step推进
-def throttled(r):
-    # 判断 step 是否被服务器限流（"finishing checkpoints too fast" 等）
-    if not isinstance(r, dict):
-        return False
-    msg = ' '.join(str(r.get(k, '')) for k in ('message', 'error', 'detail')).lower()
-    return ('too fast' in msg) or ('slow down' in msg) or ('too many' in msg)
-
-
-def do_step_with_retry(ticket, service=None, session=None, verbose=True, timer=None,
-                       gap_state=None, overlap_poll=False, poll_session=None):
-    #执行step失败时尝试回退 遇到限流则退避后直接重试
-    services_to_try = []
-    if service is not None:
-        services_to_try.append(service)
-    for svc in FALLBACK_SERVICES:
-        if svc not in services_to_try:
-            services_to_try.append(svc)
-
-    if timer:
-        timer.start('step')
-
-    # 主动保证本链相邻step的最小间隔 避免触发限流
-    if gap_state is not None and gap_state.get('ts'):
-        gap = time.time() - gap_state['ts']
-        if gap < MIN_STEP_GAP:
-            if verbose:
-                print(f'  [step] 距上次 step 仅 {gap:.1f}s，等待 {MIN_STEP_GAP - gap:.1f}s...', flush=True)
-            time.sleep(MIN_STEP_GAP - gap)
-
-    overlap_box = {}
-    overlap_thread = None
-
-    def overlap_poll_worker():
-        #step发出后稍等一下再开始轮询,避免过早的无谓请求
-        time.sleep(POLL_OVERLAP_DELAY)
-        sess = poll_session if poll_session is not None else session
-        for _ in range(POLL_MAX_ATTEMPTS):
-            if overlap_box.get('stop'):
-                return
-            try:
-                st = AUTH.get_session_status(ticket, session=sess)
-                data = st.get('data', st) if isinstance(st, dict) else {}
-                k = data.get('key', '')
-                if k and k != 'KEY_NOT_FOUND':
-                    overlap_box['key'] = k
-                    return
-            except Exception:
-                pass
-            time.sleep(POLL_INTERVAL)
-
-    for svc in services_to_try:
-        for attempt in range(STEP_THROTTLE_RETRIES + 1):
-            try:
-                t0 = time.time()
-                if overlap_poll and overlap_thread is None:
-                    overlap_thread = threading.Thread(target=overlap_poll_worker, daemon=True)
-                    overlap_thread.start()
-                r = AUTH.do_step(ticket, service=svc, session=session)
-                dt = time.time() - t0
-                if gap_state is not None:
-                    gap_state['ts'] = time.time()
-                if isinstance(r, dict) and r.get('success'):
-                    if timer:
-                        timer.stop()
-                    if verbose:
-                        print(f'  [step] service={svc} -> 成功 ({(dt * 1000):.0f}ms)', flush=True)
-                    return svc, r, overlap_box
-                if throttled(r):
-                    if attempt < STEP_THROTTLE_RETRIES:
-                        if verbose:
-                            print(f'  [step] service={svc}: 限流，退避 {STEP_THROTTLE_SLEEP}s 后重试'
-                                  f' ({attempt + 1}/{STEP_THROTTLE_RETRIES})', flush=True)
-                        time.sleep(STEP_THROTTLE_SLEEP)
-                        continue
-                if verbose:
-                    err = json.dumps(r)[:200] if isinstance(r, dict) else str(r)[:200]
-                    print(f'  [step] service={svc}: {err} ({(dt * 1000):.0f}ms)', flush=True)
-                break
-            except Exception as e:
-                if verbose:
-                    print(f'  [step] service={svc} 异常: {e}', flush=True)
-                break
-
-    if timer:
-        timer.stop()
-    overlap_box['stop'] = True
-    return None, {'success': False, 'error': 'all services failed'}, overlap_box
-
-
-#Key提取
-def check_key_in_response(ticket, session=None, verbose=True, timer=None):
-    #检查会话中是否已有key
-    try:
-        if timer:
-            timer.start('poll')
-        st = AUTH.get_session_status(ticket, session=session)
-        if timer:
-            timer.stop()
-        st_data = st.get('data', st) if isinstance(st, dict) else {}
-        key = st_data.get('key', '')
-        if key and key != 'KEY_NOT_FOUND':
-            if verbose:
-                print(f'  [key] 发现 KEY: {key}', flush=True)
-            return key
-        if verbose and key:
-            print(f'  [key] 尚未就绪: {key}', flush=True)
-    except Exception as e:
-        if verbose:
-            print(f'  [key] 检查异常: {e}', flush=True)
-    return None
-
-
-def poll_for_key(ticket, session=None, max_attempts=3, interval=0, verbose=True, timer=None):
-    #轮询等待key：首查立即，之后每次间隔 interval 秒
-    for i in range(max_attempts):
-        key = check_key_in_response(ticket, session=session, verbose=verbose, timer=timer)
-        if key:
-            return key
-        if interval > 0 and i < max_attempts - 1:
-            time.sleep(interval)
-    return None
-
-
-#主循环
-def solve_chain(ticket, verbose=True, max_rounds=MAX_ROUNDS, session=None):
-    #完整链路ticket->captcha->step->decode->repeat->key
-    if session is None:
-        session = AUTH.create_session()
-    current_ticket = ticket
-    current_service = None
-    timer = Timer()
-    invalid_reason = [None]
-    round_cap = max(max_rounds, 1)
-    round_idx = 0
-    last_exit = ['round-exhausted']
-    gap_state = {'ts': 0.0}
-
-    while round_idx < round_cap:
-        if verbose:
-            print(f'  [{round_idx + 1}/{round_cap}]', flush=True)
-        if timer:
-            timer.start('meta')
-        meta_session = AUTH.create_session()
-        meta_future = None
-        stat_future = None
-        cpc = None
-        try:
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                meta_future = pool.submit(resolve_meta, current_ticket, meta_session, verbose)
-
-                if round_idx == 0:
-                    stat_session = AUTH.create_session()
-                    stat_future = pool.submit(check_key_in_response, current_ticket,
-                                              stat_session, verbose, None)
-
-                if stat_future is not None:
-                    try:
-                        early = stat_future.result(timeout=6)
-                    except Exception:
-                        early = None
-                    if early:
-                        if verbose:
-                            print(f'  [early] 该链接已完成，直接返回已有 KEY', flush=True)
-                        return early, timer
-
-                try:
-                    svc, cpc, mvalid, mreason = meta_future.result(timeout=6)
-                    current_service = svc
-                    if not mvalid:
-                        # 明确无效/过期链接
-                        invalid_reason[0] = mreason
-                        last_exit[0] = 'invalid-link'
-                        timer.invalid_reason = mreason
-                        return None, timer
-                except Exception:
-                    current_service, cpc = None, None
-        finally:
-            meta_session.close()
-            try:
-                if stat_future is not None:
-                    stat_session.close()
-            except Exception:
-                pass
-        if timer:
-            timer.stop()
-
-        # 按 checkpointCount 动态延长轮数
-        if cpc is not None:
-            need = cpc + 1
-            if need > round_cap:
-                round_cap = min(need, MAX_ROUNDS_HARD_CAP)
-                if verbose:
-                    print(f'  [rounds] checkpointCount={cpc} -> 需 {need} 轮 (当前 cap={round_cap})', flush=True)
-
-        if current_service is not None and verbose:
-            print(f'  [service] metadata: {current_service}', flush=True)
-
-        # 对最后一步开启step/poll 重叠 两个串行RTT压成一个
-        last_step = round_idx > 0
-        service, resp, overlap = do_step_with_retry(
-            current_ticket,
-            service=current_service,
-            session=session,
-            verbose=verbose,
-            timer=timer,
-            gap_state=gap_state,
-            overlap_poll=last_step,
-            poll_session=None
-        )
-        if overlap.get('key'):
-            if verbose:
-                print(f'  [key] 发现 KEY (重叠轮询): {overlap["key"]}', flush=True)
-            return overlap['key'], timer
-        if service is None:
-            if verbose:
-                print(f'  [-] 第 {round_idx + 1} round step 全部失败, 跳过', flush=True)
-            last_exit[0] = 'step-failed'
-            round_idx += 1
-            continue
-
-        current_service = service
-        #提取URL
-        url = (resp.get('data') or {}).get('url', '')
-        if not url:
-            if verbose:
-                print(f'  [-] 响应中没有 URL', flush=True)
-            last_exit[0] = 'no-url'
-            round_idx += 1
-            continue
-
-        if verbose:
-            url_short = url[:80] + '...' if len(url) > 80 else url
-            print(f'  [url] {url_short}', flush=True)
-
-        if url == 'about:blank':
-            if verbose:
-                print(f'  [poll] (about:blank) 轮询 key, 最多 {POLL_MAX_ATTEMPTS} 次/每次{POLL_INTERVAL}s...', flush=True)
-            key = poll_for_key(current_ticket, session=session, verbose=verbose, timer=timer,
-                               max_attempts=POLL_MAX_ATTEMPTS, interval=POLL_INTERVAL)
-            if key:
-                return key, timer
-            if verbose:
-                print(f'  [-] 轮询 {POLL_MAX_ATTEMPTS} 次仍未拿到 key', flush=True)
-            last_exit[0] = 'poll-timeout'
-            round_idx += 1
-            continue
-
-        #解码r=参数->下一张ticket
-        callback = AUTH.decode_callback_url(url)
-        if callback:
-            next_ticket = AUTH.extract_ticket_from_callback(callback)
-            if next_ticket and len(next_ticket) > 50:
-                if verbose:
-                    print(f'  [next] 新 ticket: {next_ticket[:24]}... ({len(next_ticket)} chars)', flush=True)
-                current_ticket = next_ticket
-                round_idx += 1
-                continue
-
-        #无r=回调->lootlabs 链接轮询 key
-        if verbose:
-            print(f'  [info] 无 r= 回调, 尝试轮询 key...', flush=True)
-        key = check_key_in_response(current_ticket, session=session, verbose=verbose, timer=timer)
-        if key:
-            return key, timer
-        last_exit[0] = 'no-callback-no-key'
-        break
-
-    #最后检查
-    key = check_key_in_response(current_ticket, session=session, verbose=verbose, timer=timer)
-    if key:
-        return key, timer
-
-    if verbose:
-        print(f'\n[-] 未获取到 key (原因: {last_exit[0]}; 已跑 {round_idx}/{round_cap} 轮)', flush=True)
-    return None, timer
-
-
-# CLI
-def main():
-    ap = argparse.ArgumentParser(
-        description='Delta自动求解器',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''示例:
-  %(prog)s "https://auth.platorelay.com/a?d=<ticket>"
-  %(prog)s "<raw_ticket>"
-  %(prog)s ticket.txt
-  %(prog)s --generate 3
-        '''
-    )
-    ap.add_argument('target', nargs='?', help='auth URL / ticket / 文件路径')
-    ap.add_argument('--generate', '-g', type=int, default=0,
-                    help='通过 Platoboost API 生成 N 条测试链接')
-    ap.add_argument('--quiet', '-q', action='store_true',
-                    help='静默模式 (只输出结果)')
-    ap.add_argument('--max-rounds', type=int, default=MAX_ROUNDS,
-                    help=f'最大 round 数 (默认 {MAX_ROUNDS})')
-    ap.add_argument('--no-auto', action='store_true',
-                    help='只生成链接, 不求解')
-    args = ap.parse_args()
-
-    verbose = not args.quiet
-
-    # 后台盯上游客户端版本：启动刷一次，之后每小时一次。
-    # Watch the far end's client version in the background: once at startup,
-    # then hourly.
-    AUTH.start_version_watcher()
-
-    tickets = []
-    gen_start = time.time()
-
-    if args.generate > 0:
-        if verbose:
-            print(f'[*] 生成 {args.generate} 条链接...', flush=True)
-        try:
-            urls = LG.batch_links(args.generate)
-            tickets = [AUTH.extract_ticket(u) for u in urls]
-            if verbose:
-                print(f'[*] 成功获取 {len(tickets)} 条 ticket', flush=True)
-        except Exception as e:
-            print(f'[-] 生成链接失败: {e}', file=sys.stderr, flush=True)
-            sys.exit(1)
-    elif args.target:
-        # 命令行参数才允许从文件读 ticket（一行一个那种）。
-        # HTTP 接口走的是 extract_ticket，不读文件。
-        tickets.append(AUTH.extract_ticket_from_arg(args.target))
+def get_main_keyboard(lang="ar"):
+    if lang == "en":
+        keyboard = [
+            ["🔗 Bypass Link"],
+            ["🌐 Supported Sites", "📖 Bot Guide"],
+            ["⭐ Bot Ratings", "🌍 Change Language"],
+            [f"📊 Successful Requests: {successful_requests_count}"]
+        ]
     else:
-        ap.print_help()
-        sys.exit(1)
+        keyboard = [
+            ["🔗 تجاوز رابط"],
+            ["🌐 المواقع المدعومة", "📖 شرح البوت"],
+            ["⭐ تقييم البوت", "🌍 تغيير اللغة"],
+            [f"📊 الطلبات الناجحة: {successful_requests_count}"]
+        ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-    if args.no_auto:
-        for t in tickets:
-            print(f'https://auth.platorelay.com/a?d={t}')
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = user_languages.get(user_id, "ar")
+    welcome_text = "Welcome to the Bypass Bot 👋\n\nSend your Delta link directly:" if lang == "en" else "مرحباً بك في بوت تجاوز الروابط 👋\n\nأرسل رابط دلتا مباشرة وسأقوم باستخراج المفتاح:"
+    await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard(lang))
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global successful_requests_count
+    if not update.message or not update.message.text:
+        return
+        
+    user_id = update.effective_user.id
+    lang = user_languages.get(user_id, "ar")
+    user_text = update.message.text.strip()
+    
+    if user_states.get(user_id) == "waiting_for_rating_text":
+        stars = user_states.get(user_id + 1000, 5)
+        name = update.effective_user.first_name or "User"
+        user_ratings.append({"name": name, "stars": stars, "text": user_text})
+        user_states.pop(user_id, None)
+        user_states.pop(user_id + 1000, None)
+        
+        await update.message.reply_text("✅ شكراً لك! تم إضافة تقييمك بنجاح.", reply_markup=get_main_keyboard(lang))
         return
 
-    #逐条求解
-    results = []
-    for i, ticket in enumerate(tickets):
-        t0 = time.time()
-        key, timer = solve_chain(ticket, verbose=verbose, max_rounds=args.max_rounds,
-                                 session=None)
-        dt = time.time() - t0
-        results.append((i, key, timer, dt))
+    if user_text in ["🔗 تجاوز رابط", "🔗 Bypass Link"]:
+        msg = "Send your link now:" if lang == "en" else "أرسل رابطك الآن وسأقوم باستخراجه فوراً:"
+        await update.message.reply_text(msg)
+        return
+        
+    elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
+        msg = "Supported sites:\n- auth.platorelay.com (Delta)" if lang == "en" else "الموقع المدعوم:\n- auth.platorelay.com (Delta)"
+        await update.message.reply_text(msg)
+        return
+        
+    elif user_text in ["📖 شرح البوت", "📖 Bot Guide"]:
+        msg = "Just send your link directly!" if lang == "en" else "فقط أرسل الرابط مباشرة في المحادثة وسيتم معالجته."
+        await update.message.reply_text(msg)
+        return
+        
+    elif user_text in ["⭐ تقييم البوت", "⭐ Bot Ratings"]:
+        await show_ratings_page_message(update.message, 0, lang)
+        return
+        
+    elif user_text in ["🌍 تغيير اللغة", "🌍 Change Language"]:
+        lang_text = "Please choose your language 👇" if lang == "en" else "👇 الرجاء اختيار اللغة 👇"
+        keyboard = [
+            [InlineKeyboardButton("🇮🇶 العربية", callback_data="lang_ar"),
+             InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")]
+        ]
+        await update.message.reply_text(lang_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+        
+    elif "الطلبات الناجحة" in user_text or "Successful Requests" in user_text:
+        msg = f"📊 Total successful requests: {successful_requests_count}" if lang == "en" else f"📊 عدد الطلبات الناجحة عبر البوت حتى الآن: {successful_requests_count}"
+        await update.message.reply_text(msg)
+        return
 
-        if key:
-            print(f'\n{"=" * 60}', flush=True)
-            print(f'[+] DELTA KEY #{i + 1}: {key}', flush=True)
-            print(f'[+] 耗时: {dt:.1f}s', flush=True)
-            print(f'[+] 阶段明细:')
-            print(timer.summary())
-            print(f'{"=" * 60}', flush=True)
-        elif verbose:
-            print(f'\n[-] 链接 {i + 1}: 未获取到 key', flush=True)
-            if timer.total() > 0:
-                print(f'[-] 耗时: {dt:.1f}s')
-                print(f'[-] 阶段明细:')
-                print(timer.summary())
+    if "http://" in user_text or "https://" in user_text:
+        wait_msg = "⏳ جارٍ معالجة واستخراج المفتاح..."
+        status_msg = await update.message.reply_text(wait_msg)
+        
+        start_time = asyncio.get_event_loop().time()
+        extracted_result = ""
+        
+        cmd = ["python", "main.py", user_text]
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            output_text = stdout.decode('utf-8', errors='ignore')
+            
+            # البحث الذكي عن المفتاح المستخرج من مخرجات main.py
+            for line in output_text.splitlines():
+                if "DELTA KEY" in line or "FREE_" in line:
+                    if ":" in line:
+                        extracted_result = line.split(":", 1)[1].strip()
+                        break
+            
+            # إذا لم يتم التقاطه بالكلمات المفتاحية، نبحث عن أي مفتاح صالح
+            if not extracted_result:
+                for line in output_text.splitlines():
+                    if "KEY" in line and "NOT_FOUND" not in line and "=" not in line:
+                        extracted_result = line.strip()
+                        break
+                        
+            if not extracted_result:
+                extracted_result = "فشل استخراج المفتاح، يرجى التأكد من صلاحية الرابط."
+        except Exception as e:
+            extracted_result = f"خطأ: {str(e)}"
+            
+        elapsed_time = asyncio.get_event_loop().time() - start_time
+        
+        try:
+            await status_msg.delete()
+        except:
+            pass
 
-    #汇总
-    total_elapsed = time.time() - gen_start
-    success_count = sum(1 for _, key, _, _ in results if key)
-    total_timer = Timer()
-    for _, _, timer, _ in results:
-        for name, secs in timer.phases.items():
-            total_timer.add(name, secs)
+        if extracted_result and "فشل" not in extracted_result and "خطأ" not in extracted_result:
+            successful_requests_count += 1
+            last_extracted_links[user_id] = extracted_result
+            
+            result_message = (
+                f"✅ **المفتاح المستخرج:**\n`{extracted_result}`\n\n"
+                f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
+            )
+            keyboard = [
+                [InlineKeyboardButton("📋 نسخ المفتاح", callback_data="copy_result")],
+                [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
+            ]
+            await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            fail_message = f"❌ {extracted_result}"
+            keyboard = [[InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]]
+            await update.message.reply_text(fail_message, reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text("يرجى إرسال رابط صحيح يبدأ بـ http:// أو اختيار أمر من القائمة.")
 
-    print(f'\n{"=" * 60}', flush=True)
-    print(f'[+] 汇总: {success_count}/{len(tickets)} 成功', flush=True)
-    print(f'[+] 总耗时: {total_elapsed:.1f}s', flush=True)
-    if len(tickets) > 0:
-        print(f'[+] 平均每链接: {total_elapsed / len(tickets):.1f}s', flush=True)
-    if total_timer.total() > 0:
-        print(f'[+] 总阶段明细:')
-        print(total_timer.summary())
-    print(f'{"=" * 60}', flush=True)
+async def show_ratings_page_message(message_obj, index, lang="ar"):
+    if not user_ratings:
+        await message_obj.reply_text("No ratings yet." if lang == "en" else "لا توجد تقييمات حالياً.")
+        return
+        
+    total = len(user_ratings)
+    index = max(0, min(index, total - 1))
+    r = user_ratings[index]
+    
+    stars_str = "⭐" * r["stars"]
+    ratings_content = (
+        f"⭐ **التقييمات ({index + 1}/{total}):**\n\n"
+        f"👤 **{r['name']}** {stars_str}\n"
+        f"{r['text']}"
+    )
+    
+    nav_buttons = []
+    if index > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"rating_page:{index - 1}"))
+    if index < total - 1:
+        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"rating_page:{index + 1}"))
+        
+    keyboard = []
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    keyboard.append([InlineKeyboardButton("➕ إضافة تقييم", callback_data="start_add_rating")])
+    keyboard.append([InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")])
+    
+    await message_obj.reply_text(ratings_content, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = update.effective_user.id
+    lang = user_languages.get(user_id, "ar")
+    data = query.data
+    
+    if data == "back_to_menu":
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="القائمة الرئيسية:" if lang == "ar" else "Main Menu:",
+            reply_markup=get_main_keyboard(lang)
+        )
+        
+    elif data.startswith("lang_"):
+        new_lang = data.split("_")[1]
+        user_languages[user_id] = new_lang
+        msg = "Language changed to English successfully 🇺🇸" if new_lang == "en" else "تم تغيير اللغة إلى العربية بنجاح 🇮🇶"
+        try:
+            await query.answer(msg, show_alert=True)
+            await query.message.delete()
+        except:
+            pass
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=msg,
+            reply_markup=get_main_keyboard(new_lang)
+        )
+            
+    elif data == "start_add_rating":
+        keyboard = [
+            [InlineKeyboardButton("⭐", callback_data="rate_star:1"),
+             InlineKeyboardButton("⭐⭐", callback_data="rate_star:2"),
+             InlineKeyboardButton("⭐⭐⭐", callback_data="rate_star:3")],
+            [InlineKeyboardButton("⭐⭐⭐⭐", callback_data="rate_star:4"),
+             InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data="rate_star:5")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="rating_page:0")]
+        ]
+        try:
+            await query.edit_message_text("اختر عدد النجوم لتقييم البوت:", reply_markup=InlineKeyboardMarkup(keyboard))
+        except:
+            pass
+        
+    elif data.startswith("rate_star:"):
+        stars = int(data.split(":")[1])
+        user_states[user_id + 1000] = stars
+        user_states[user_id] = "waiting_for_rating_text"
+        try:
+            await query.edit_message_text(f"لقد اخترت {stars} نجوم ⭐.\nالآن يرجى إرسال رسالة برأيك أو تقييمك للبوت:")
+        except:
+            pass
+        
+    elif data.startswith("rating_page:"):
+        idx = int(data.split(":")[1])
+        total = len(user_ratings)
+        idx = max(0, min(idx, total - 1))
+        r = user_ratings[idx]
+        stars_str = "⭐" * r["stars"]
+        ratings_content = (
+            f"⭐ **التقييمات ({idx + 1}/{total}):**\n\n"
+            f"👤 **{r['name']}** {stars_str}\n"
+            f"{r['text']}"
+        )
+        nav_buttons = []
+        if idx > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"rating_page:{idx - 1}"))
+        if idx < total - 1:
+            nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"rating_page:{idx + 1}"))
+            
+        keyboard = []
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+        keyboard.append([InlineKeyboardButton("➕ إضافة تقييم", callback_data="start_add_rating")])
+        keyboard.append([InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")])
+        
+        try:
+            await query.edit_message_text(ratings_content, parse_message="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception:
+            pass
+        
+    elif data == "copy_result":
+        res = last_extracted_links.get(user_id, "لا توجد نتيجة محفوظة")
+        try:
+            await query.answer(f"تم النسخ: {res}", show_alert=True)
+        except Exception:
+            pass
 
-if __name__ == '__main__':
+def main():
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .connect_timeout(30)
+        .read_timeout(30)
+        .write_timeout(30)
+        .build()
+    )
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    
+    print("Bot is running perfectly...")
+    app.run_polling()
+
+if __name__ == "__main__":
     main()
