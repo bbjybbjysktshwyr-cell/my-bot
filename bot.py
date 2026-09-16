@@ -1,7 +1,7 @@
 import os
-import sys
-import asyncio
-import subprocess
+import urllib.parse
+import urllib.request
+import json
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
@@ -34,10 +34,36 @@ def get_main_keyboard(lang="ar"):
         ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+def bypass_link_api(url: str) -> str:
+    """تجاوز سريع جداً عبر الـ API بدون تعليق Termux"""
+    try:
+        encoded_url = urllib.parse.quote(url, safe='')
+        # استخدام API عام ومستقر لتجاوز روابط دلتا ولينكفايتز
+        api_url = f"https://bypass.bot.nu/bypass2?url={encoded_url}"
+        
+        req = urllib.request.Request(
+            api_url, 
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json'
+            }
+        )
+        
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            for key in ["destination", "result", "url", "key"]:
+                if key in data and data[key]:
+                    val = str(data[key])
+                    if val.startswith("http") or len(val) > 10:
+                        return val
+    except Exception as e:
+        print(f"API Error: {e}")
+    return ""
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = user_languages.get(user_id, "ar")
-    welcome_text = "Welcome to the All-in-One Bypass Bot 👋\n\nSend your Linkvertise or Delta link directly:" if lang == "en" else "مرحباً بك في بوت التجاوز الشامل (Delta & Linkvertise) 👋\n\nأرسل الرابط مباشرة وسأقوم بحله:"
+    welcome_text = "Welcome to the Bypass Bot 👋\n\nSend your link directly:" if lang == "en" else "مرحباً بك في بوت تجاوز الروابط 👋\n\nأرسل الرابط مباشرة وسأقوم باستخراجه فوراً:"
     await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard(lang))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -55,242 +81,98 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_ratings.append({"name": name, "stars": stars, "text": user_text})
         user_states.pop(user_id, None)
         user_states.pop(user_id + 1000, None)
-        
         await update.message.reply_text("✅ شكراً لك! تم إضافة تقييمك بنجاح.", reply_markup=get_main_keyboard(lang))
         return
 
     if user_text in ["🔗 تجاوز رابط", "🔗 Bypass Link"]:
-        msg = "Send your link now (Delta or Linkvertise):" if lang == "en" else "أرسل رابطك الآن (دلتا أو لينكفايتز) وسأقوم باستخراجه فوراً:"
-        await update.message.reply_text(msg)
+        await update.message.reply_text("أرسل رابطك الآن وسأقوم باستخراجه فوراً:")
         return
-        
     elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
-        msg = "Supported sites:\n- Delta Exploits (main.py)\n- Linkvertise (cli.py)" if lang == "en" else "المواقع المدعومة:\n- روابط دلتا (عبر main.py)\n- روابط Linkvertise (عبر cli.py)"
-        await update.message.reply_text(msg)
+        await update.message.reply_text("المواقع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com")
         return
-        
     elif user_text in ["📖 شرح البوت", "📖 Bot Guide"]:
-        msg = "Just send your link directly in the chat!" if lang == "en" else "فقط أرسل الرابط مباشرة في المحادثة وسيتم التعامل معه تلقائياً."
-        await update.message.reply_text(msg)
+        await update.message.reply_text("فقط أرسل الرابط مباشرة وسيتم تجاوزه خلال ثوانٍ.")
         return
-        
     elif user_text in ["⭐ تقييم البوت", "⭐ Bot Ratings"]:
         await show_ratings_page_message(update.message, 0, lang)
         return
-        
     elif user_text in ["🌍 تغيير اللغة", "🌍 Change Language"]:
-        lang_text = "Please choose your language 👇" if lang == "en" else "👇 الرجاء اختيار اللغة 👇"
-        keyboard = [
-            [InlineKeyboardButton("🇮🇶 العربية", callback_data="lang_ar"),
-             InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")]
-        ]
-        await update.message.reply_text(lang_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        keyboard = [[InlineKeyboardButton("🇮🇶 العربية", callback_data="lang_ar"), InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")]]
+        await update.message.reply_text("اختر اللغة:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
-        
     elif "الطلبات الناجحة" in user_text or "Successful Requests" in user_text:
-        msg = f"📊 Total successful requests: {successful_requests_count}" if lang == "en" else f"📊 عدد الطلبات الناجحة عبر البوت حتى الآن: {successful_requests_count}"
-        await update.message.reply_text(msg)
+        await update.message.reply_text(f"📊 عدد الطلبات الناجحة: {successful_requests_count}")
         return
 
     if "http://" in user_text or "https://" in user_text:
-        wait_msg = "⏳ جارٍ معالجة الرابط..."
-        status_msg = await update.message.reply_text(wait_msg)
+        status_msg = await update.message.reply_text("⏳ جارٍ استخراج النتيجة...")
         
-        start_time = asyncio.get_event_loop().time()
-        extracted_result = ""
-        
-        # التمييز الذكي بين دلتا ولينكفايتز
-        if "linkvertise" in user_text.lower():
-            cmd = ["python", "cli.py", user_text]
-        else:
-            cmd = ["python", "main.py", user_text]
-        
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
-            output_text = stdout.decode('utf-8', errors='ignore')
-            
-            for line in output_text.splitlines():
-                if "http://" in line or "https://" in line or "KEY_" in line or "FREE_" in line.upper():
-                    if user_text not in line:
-                        extracted_result = line.strip()
-                        break
-            
-            if not extracted_result:
-                lines = [l.strip() for l in output_text.splitlines() if l.strip() and not l.startswith("Traceback") and "127.0.0.1" not in l]
-                if lines:
-                    extracted_result = lines[-1]
-                else:
-                    extracted_result = output_text.strip() or "لم يتم العثور على النتيجة."
-        except Exception as e:
-            extracted_result = f"خطأ في التنفيذ: {str(e)}"
-            
-        elapsed_time = asyncio.get_event_loop().time() - start_time
+        # تنفيذ الاستخراج بشكل فوري بدون تعليق
+        extracted_result = bypass_link_api(user_text)
         
         try:
             await status_msg.delete()
         except:
             pass
 
-        if extracted_result and "KEY_NOT_FOUND" not in extracted_result and not extracted_result.startswith("خطأ"):
+        if extracted_result:
             successful_requests_count += 1
             last_extracted_links[user_id] = extracted_result
             
-            result_message = (
-                f"✅ **النتيجة المستخرجة:**\n`{extracted_result}`\n\n"
-                f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
-            )
+            result_message = f"✅ **النتيجة المستخرجة:**\n`{extracted_result}`"
             keyboard = [
                 [InlineKeyboardButton("📋 نسخ النتيجة", callback_data="copy_result")],
                 [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
             ]
             await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            fail_message = f"❌ فشل الاستخراج:\n`{extracted_result}`"
-            keyboard = [[InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]]
-            await update.message.reply_text(fail_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            await update.message.reply_text("❌ عذراً، لم يتم استخراج الرابط أو أن الموقع استجاب ببطء. جرب مرة أخرى.")
     else:
-        await update.message.reply_text("يرجى إرسال رابط صحيح يبدأ بـ http:// أو اختيار أمر من القائمة.")
+        await update.message.reply_text("يرجى إرسال رابط صحيح يبدأ بـ http://")
 
 async def show_ratings_page_message(message_obj, index, lang="ar"):
     if not user_ratings:
-        await message_obj.reply_text("No ratings yet." if lang == "en" else "لا توجد تقييمات حالياً.")
+        await message_obj.reply_text("No ratings yet.")
         return
-        
     total = len(user_ratings)
     index = max(0, min(index, total - 1))
     r = user_ratings[index]
-    
     stars_str = "⭐" * r["stars"]
-    ratings_content = (
-        f"⭐ **التقييمات ({index + 1}/{total}):**\n\n"
-        f"👤 **{r['name']}** {stars_str}\n"
-        f"{r['text']}"
-    )
+    ratings_content = f"⭐ **التقييمات ({index + 1}/{total}):**\n\n👤 **{r['name']}** {stars_str}\n{r['text']}"
     
-    nav_buttons = []
-    if index > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"rating_page:{index - 1}"))
-    if index < total - 1:
-        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"rating_page:{index + 1}"))
-        
-    keyboard = []
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-    keyboard.append([InlineKeyboardButton("➕ إضافة تقييم", callback_data="start_add_rating")])
-    keyboard.append([InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")])
-    
+    keyboard = [[InlineKeyboardButton("➕ إضافة تقييم", callback_data="start_add_rating")], [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]]
     await message_obj.reply_text(ratings_content, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = update.effective_user.id
-    lang = user_languages.get(user_id, "ar")
     data = query.data
+    user_id = update.effective_user.id
     
     if data == "back_to_menu":
         try:
             await query.message.delete()
-        except Exception:
-            pass
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="القائمة الرئيسية:" if lang == "ar" else "Main Menu:",
-            reply_markup=get_main_keyboard(lang)
-        )
-        
-    elif data.startswith("lang_"):
-        new_lang = data.split("_")[1]
-        user_languages[user_id] = new_lang
-        msg = "Language changed to English successfully 🇺🇸" if new_lang == "en" else "تم تغيير اللغة إلى العربية بنجاح 🇮🇶"
-        try:
-            await query.answer(msg, show_alert=True)
-            await query.message.delete()
         except:
             pass
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=msg,
-            reply_markup=get_main_keyboard(new_lang)
-        )
-            
-    elif data == "start_add_rating":
-        keyboard = [
-            [InlineKeyboardButton("⭐", callback_data="rate_star:1"),
-             InlineKeyboardButton("⭐⭐", callback_data="rate_star:2"),
-             InlineKeyboardButton("⭐⭐⭐", callback_data="rate_star:3")],
-            [InlineKeyboardButton("⭐⭐⭐⭐", callback_data="rate_star:4"),
-             InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data="rate_star:5")],
-            [InlineKeyboardButton("🔙 رجوع", callback_data="rating_page:0")]
-        ]
-        try:
-            await query.edit_message_text("اختر عدد النجوم لتقييم البوت:", reply_markup=InlineKeyboardMarkup(keyboard))
-        except:
-            pass
-        
-    elif data.startswith("rate_star:"):
-        stars = int(data.split(":")[1])
-        user_states[user_id + 1000] = stars
-        user_states[user_id] = "waiting_for_rating_text"
-        try:
-            await query.edit_message_text(f"لقد اخترت {stars} نجوم ⭐.\nالآن يرجى إرسال رسالة برأيك أو تقييمك للبوت:")
-        except:
-            pass
-        
-    elif data.startswith("rating_page:"):
-        idx = int(data.split(":")[1])
-        total = len(user_ratings)
-        idx = max(0, min(idx, total - 1))
-        r = user_ratings[idx]
-        stars_str = "⭐" * r["stars"]
-        ratings_content = (
-            f"⭐ **التقييمات ({idx + 1}/{total}):**\n\n"
-            f"👤 **{r['name']}** {stars_str}\n"
-            f"{r['text']}"
-        )
-        nav_buttons = []
-        if idx > 0:
-            nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"rating_page:{idx - 1}"))
-        if idx < total - 1:
-            nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"rating_page:{idx + 1}"))
-            
-        keyboard = []
-        if nav_buttons:
-            keyboard.append(nav_buttons)
-        keyboard.append([InlineKeyboardButton("➕ إضافة تقييم", callback_data="start_add_rating")])
-        keyboard.append([InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")])
-        
-        try:
-            await query.edit_message_text(ratings_content, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-        except Exception:
-            pass
-        
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="القائمة الرئيسية:", reply_markup=get_main_keyboard())
     elif data == "copy_result":
-        res = last_extracted_links.get(user_id, "لا توجد نتيجة محفوظة")
+        res = last_extracted_links.get(user_id, "")
         try:
             await query.answer(f"النتيجة: {res}", show_alert=True)
-        except Exception:
+        except:
+            pass
+    elif data == "start_add_rating":
+        user_states[user_id] = "waiting_for_rating_text"
+        try:
+            await query.edit_message_text("أرسل تقييمك برسالة نصية الآن:")
+        except:
             pass
 
 def main():
-    app = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        .connect_timeout(30)
-        .read_timeout(30)
-        .write_timeout(30)
-        .build()
-    )
-    
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    
-    print("Bot is running perfectly for Delta & Linkvertise...")
+    print("Bot is running smoothly...")
     app.run_polling()
 
 if __name__ == "__main__":
