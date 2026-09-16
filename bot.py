@@ -4,11 +4,17 @@ import asyncio
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
-# استدعاء دالة الـ bypass مباشرة من المجلد المنقول
+# استدعاء أداة Linkvertise
 try:
     from linkvertisebypass import bypass as bypass_link_func
 except ImportError:
     bypass_link_func = None
+
+# استدعاء ملف الموقع الثاني (Delta / auth_client)
+try:
+    import auth_client
+except ImportError:
+    auth_client = None
 
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 DATA_FILE = "bot_data.json"
@@ -23,7 +29,7 @@ def load_data():
     return {
         "successful_requests_count": 1147,
         "user_ratings": [
-            {"name": "Mohamed", "stars": 5, "text": "كويجدا ويسهل عليك وقت كبير"},
+            {"name": "Mohamed", "stars": 5, "text": "كويس جدا ويسهل عليك وقت كبير"},
             {"name": "معصومة بلال", "stars": 5, "text": "فوللل جربووو"},
             {"name": "Cristiano", "stars": 5, "text": "ياخي اسطوره الي اخترع هادا البوت"}
         ],
@@ -95,14 +101,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "تجاوز رابط" in user_text or "Bypass Link" in user_text:
         user_states[user_id] = "waiting_for_bypass_link"
         save_data()
-        msg = "Send your link now:" if lang == "en" else "أرسل الرابط الآن:"
+        msg = "Send your link now (Linkvertise & Delta):" if lang == "en" else "أرسل الرابط الآن (يدعم Linkvertise وروابط Delta):"
         await update.message.reply_text(msg)
         return
         
     elif "المواقع المدعومة" in user_text or "Supported Sites" in user_text:
         user_states.pop(user_id, None)
         save_data()
-        msg = "Supported sites:\n- linkvertise.com" if lang == "en" else "المواقع المدعومة حالياً:\n- linkvertise.com"
+        msg = "Supported sites:\n- linkvertise.com\n- auth.platorelay.com (Delta)" if lang == "en" else "المواقع المدعومة حالياً:\n- linkvertise.com\n- auth.platorelay.com (دلتا)"
         await update.message.reply_text(msg, reply_markup=get_main_keyboard(lang))
         return
         
@@ -142,7 +148,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_states.pop(user_id, None)
             save_data()
             
-            wait_msg = "⏳ Extracting result, please wait..." if lang == "en" else "⏳ جارٍ تجاوز الرابط واستخراج النتيجة، انتظر قليلاً..."
+            wait_msg = "⏳ Extracting result, please wait..." if lang == "en" else "⏳ جارٍ معالجة الرابط واستخراج النتيجة، انتظر قليلاً..."
             status_msg = await update.message.reply_text(wait_msg)
             
             start_time = asyncio.get_event_loop().time()
@@ -150,18 +156,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 loop = asyncio.get_running_loop()
-                if bypass_link_func:
-                    res = await loop.run_in_executor(None, bypass_link_func, user_text)
-                    if hasattr(res, "value") and res.value:
-                        extracted_result = str(res.value)
-                    elif hasattr(res, "url") and res.url:
-                        extracted_result = str(res.url)
-                    elif hasattr(res, "result") and res.result:
-                        extracted_result = str(res.result)
-                    else:
+                # التحقق إذا كان الرابط يتبع موقع Delta / platorelay
+                if "platorelay.com" in user_text or "delta" in user_text.lower():
+                    if auth_client and hasattr(auth_client, "bypass"):
+                        res = await loop.run_in_executor(None, auth_client.bypass, user_text)
                         extracted_result = str(res)
+                    elif auth_client and hasattr(auth_client, "main"):
+                        # أو تشغيل الدالة الرئيسية في auth_client إذا كانت متوفرة
+                        res = await loop.run_in_executor(None, auth_client.main, user_text)
+                        extracted_result = str(res)
+                    else:
+                        # تشغيل الملف عبر سطر الأوامر كبديل
+                        process = await asyncio.create_subprocess_exec(
+                            "python", "auth_client.py", user_text,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        stdout, stderr = await process.communicate()
+                        extracted_result = stdout.decode('utf-8', errors='ignore').strip()
+                        if not extracted_result:
+                            extracted_result = stderr.decode('utf-8', errors='ignore').strip()
                 else:
-                    extracted_result = "Module linkvertisebypass not loaded properly."
+                    # معالجة روابط Linkvertise
+                    if bypass_link_func:
+                        res = await loop.run_in_executor(None, bypass_link_func, user_text)
+                        if hasattr(res, "value") and res.value:
+                            extracted_result = str(res.value)
+                        elif hasattr(res, "url") and res.url:
+                            extracted_result = str(res.url)
+                        elif hasattr(res, "result") and res.result:
+                            extracted_result = str(res.result)
+                        else:
+                            extracted_result = str(res)
+                    else:
+                        extracted_result = "Linkvertise module not loaded."
             except Exception as ex:
                 extracted_result = str(ex)
 
@@ -178,7 +206,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 save_data()
                 
                 result_message = (
-                    f"✅ **تم التجاوز بنجاح:**\n\n"
+                    f"✅ **تم تجاوز الرابط بنجاح:**\n\n"
                     f"`{extracted_result}`\n\n"
                     f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
                 )
@@ -190,7 +218,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 fail_message = (
                     f"❌ **فشل في تجاوز الرابط!**\n\n"
-                    f"⚠️ الرابط غير مدعوم حالياً أو أن الأداة تتطلب تحديثاً."
+                    f"⚠️ تأكد من صحة الرابط أو أن ملفات المصادقة تعمل بشكل صحيح."
                 )
                 keyboard = [
                     [InlineKeyboardButton("🛠️ الدعم الفني", url="https://t.me/AL_shz1")],
@@ -238,7 +266,7 @@ async def show_ratings_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     if edit:
         await update.callback_query.edit_message_text(ratings_content, parse_mode="Markdown", reply_markup=reply_markup)
     else:
-        await update.message.reply_text(ratings_content, parse_mode="Markdown", reply_markup=reply_markup)
+        await update.message.reply_text(ratings_content, parse_Mode="Markdown", reply_markup=reply_markup)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -320,7 +348,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running perfectly with direct library integration...")
+    print("Bot is running with full support for Linkvertise & Delta...")
     app.run_polling()
 
 if __name__ == "__main__":
