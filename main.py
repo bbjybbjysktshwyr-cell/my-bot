@@ -110,22 +110,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stdout, stderr = await process.communicate()
             output_text = stdout.decode('utf-8', errors='ignore')
             
-            # البحث الذكي عن المفتاح المستخرج من مخرجات main.py
+            # استخراج السطر الذي يحتوي على المفتاح بدقة وتجاوز السطور التجميلية
             for line in output_text.splitlines():
-                if "DELTA KEY" in line or "FREE_" in line:
-                    if ":" in line:
-                        extracted_result = line.split(":", 1)[1].strip()
+                if "DELTA KEY" in line and ":" in line:
+                    parts = line.split(":", 1)
+                    if len(parts) > 1:
+                        extracted_result = parts[1].strip()
                         break
             
-            # إذا لم يتم التقاطه بالكلمات المفتاحية، نبحث عن أي مفتاح صالح
             if not extracted_result:
-                for line in output_text.splitlines():
-                    if "KEY" in line and "NOT_FOUND" not in line and "=" not in line:
-                        extracted_result = line.strip()
-                        break
-                        
-            if not extracted_result:
-                extracted_result = "فشل استخراج المفتاح، يرجى التأكد من صلاحية الرابط."
+                # بحث بديل عن أي نص مفتاح صالح
+                lines = [l.strip() for l in output_text.splitlines() if l.strip() and "=" not in l and "+" not in l]
+                if lines:
+                    extracted_result = lines[-1]
+                else:
+                    extracted_result = "فشل استخراج المفتاح."
         except Exception as e:
             extracted_result = f"خطأ: {str(e)}"
             
@@ -265,7 +264,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")])
         
         try:
-            await query.edit_message_text(ratings_content, parse_message="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text(ratings_content, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception:
             pass
         
@@ -290,7 +289,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running perfectly...")
+    print("Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
