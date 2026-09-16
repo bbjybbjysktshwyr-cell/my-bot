@@ -1,9 +1,7 @@
 import os
 import sys
-import json
 import asyncio
 import subprocess
-import urllib.parse
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
@@ -17,6 +15,7 @@ user_ratings = [
     {"name": "Cristiano", "stars": 5, "text": "ياخي اسطوره الي اخترع هادا البوت"}
 ]
 user_states = {}
+last_extracted_links = {}
 
 def get_main_keyboard(lang="ar"):
     if lang == "en":
@@ -38,7 +37,7 @@ def get_main_keyboard(lang="ar"):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = user_languages.get(user_id, "ar")
-    welcome_text = "Welcome to the Bypass Bot 👋\n\nSend your Delta or Linkvertise link directly:" if lang == "en" else "مرحباً بك في بوت التجاوز الشامل 👋\n\nأرسل رابط دلتا أو لينكفايتز مباشرة وسأقوم بحله:"
+    welcome_text = "Welcome to the All-in-One Bypass Bot 👋\n\nSend your Linkvertise or Delta link directly:" if lang == "en" else "مرحباً بك في بوت التجاوز الشامل (Delta & Linkvertise) 👋\n\nأرسل الرابط مباشرة وسأقوم بحله:"
     await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard(lang))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -61,17 +60,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if user_text in ["🔗 تجاوز رابط", "🔗 Bypass Link"]:
-        msg = "Send your link now:" if lang == "en" else "أرسل رابطك الآن وسأقوم باستخراجه فوراً:"
+        msg = "Send your link now (Delta or Linkvertise):" if lang == "en" else "أرسل رابطك الآن (دلتا أو لينكفايتز) وسأقوم باستخراجه فوراً:"
         await update.message.reply_text(msg)
         return
         
     elif user_text in ["🌐 المواقع المدعومة", "🌐 Supported Sites"]:
-        msg = "Supported sites:\n- auth.platorelay.com (Delta)\n- linkvertise.com" if lang == "en" else "المواقع المدعومة:\n- auth.platorelay.com (Delta)\n- linkvertise.com"
+        msg = "Supported sites:\n- Delta Exploits (main.py)\n- Linkvertise (cli.py)" if lang == "en" else "المواقع المدعومة:\n- روابط دلتا (عبر main.py)\n- روابط Linkvertise (عبر cli.py)"
         await update.message.reply_text(msg)
         return
         
     elif user_text in ["📖 شرح البوت", "📖 Bot Guide"]:
-        msg = "Just send your link directly in the chat!" if lang == "en" else "فقط أرسل الرابط مباشرة في المحادثة وسيتم تجاوزه."
+        msg = "Just send your link directly in the chat!" if lang == "en" else "فقط أرسل الرابط مباشرة في المحادثة وسيتم التعامل معه تلقائياً."
         await update.message.reply_text(msg)
         return
         
@@ -94,13 +93,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if "http://" in user_text or "https://" in user_text:
-        wait_msg = "⏳ جارٍ معالجة الرابط عبر الأدوات..."
+        wait_msg = "⏳ جارٍ معالجة الرابط..."
         status_msg = await update.message.reply_text(wait_msg)
         
         start_time = asyncio.get_event_loop().time()
         extracted_result = ""
         
-        # تحديد نوع الأداة بناءً على الرابط المرسل
+        # التمييز الذكي بين دلتا ولينكفايتز
         if "linkvertise" in user_text.lower():
             cmd = ["python", "cli.py", user_text]
         else:
@@ -115,9 +114,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stdout, stderr = await process.communicate()
             output_text = stdout.decode('utf-8', errors='ignore')
             
-            # استخراج النتيجة من مخرجات الأداة
             for line in output_text.splitlines():
-                if "http://" in line or "https://" in line or "KEY_" in line or "free_" in line.lower():
+                if "http://" in line or "https://" in line or "KEY_" in line or "FREE_" in line.upper():
                     if user_text not in line:
                         extracted_result = line.strip()
                         break
@@ -140,12 +138,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if extracted_result and "KEY_NOT_FOUND" not in extracted_result and not extracted_result.startswith("خطأ"):
             successful_requests_count += 1
+            last_extracted_links[user_id] = extracted_result
+            
             result_message = (
                 f"✅ **النتيجة المستخرجة:**\n`{extracted_result}`\n\n"
                 f"⏳ الوقت المستغرق: {elapsed_time:.2f} ثانية"
             )
             keyboard = [
-                [InlineKeyboardButton("📋 نسخ النتيجة", callback_data=f"copy_key:{extracted_result}")],
+                [InlineKeyboardButton("📋 نسخ النتيجة", callback_data="copy_result")],
                 [InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]
             ]
             await update.message.reply_text(result_message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -188,11 +188,6 @@ async def show_ratings_page_message(message_obj, index, lang="ar"):
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    try:
-        await query.answer()
-    except Exception:
-        pass
-    
     user_id = update.effective_user.id
     lang = user_languages.get(user_id, "ar")
     data = query.data
@@ -213,9 +208,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_languages[user_id] = new_lang
         msg = "Language changed to English successfully 🇺🇸" if new_lang == "en" else "تم تغيير اللغة إلى العربية بنجاح 🇮🇶"
         try:
-            await query.edit_message_text(msg)
+            await query.answer(msg, show_alert=True)
+            await query.message.delete()
         except:
-            await query.message.reply_text(msg)
+            pass
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=msg,
+            reply_markup=get_main_keyboard(new_lang)
+        )
             
     elif data == "start_add_rating":
         keyboard = [
@@ -268,10 +269,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
         
-    elif data.startswith("copy_key:"):
-        key_to_copy = data.split(":", 1)[1]
+    elif data == "copy_result":
+        res = last_extracted_links.get(user_id, "لا توجد نتيجة محفوظة")
         try:
-            await query.answer(f"تم النسخ بنجاح: {key_to_copy}", show_alert=True)
+            await query.answer(f"النتيجة: {res}", show_alert=True)
         except Exception:
             pass
 
@@ -289,7 +290,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("Bot is running perfectly supporting both tools...")
+    print("Bot is running perfectly for Delta & Linkvertise...")
     app.run_polling()
 
 if __name__ == "__main__":
