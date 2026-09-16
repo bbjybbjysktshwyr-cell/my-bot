@@ -1,13 +1,17 @@
 import os
 import asyncio
 import subprocess
-from telegram import Update
+from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
 BOT_TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("أهلاً بك. أرسل رابط دلتا مباشرة وسأقوم باستخراج النتيجة لك فوراً وبدون أزرار.")
+    # إزالة مربع الأزرار تماماً من الدردشة
+    await update.message.reply_text(
+        "أهلاً بك. أرسل رابط دلتا مباشرة وسأقوم باستخراج النتيجة لك.",
+        reply_markup=ReplyKeyboardRemove()
+    )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -16,11 +20,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text.strip()
 
     if "http://" in user_text or "https://" in user_text:
-        status_msg = await update.message.reply_text("⏳ جارٍ معالجة رابط دلتا...")
+        status_msg = await update.message.reply_text("⏳ جارٍ معالجة رابط دلتا عبر الأداة...")
         
         extracted_result = ""
         try:
-            # تشغيل ملف main.py الخاص بدلتا مع الرابط المرسل
             process = await asyncio.create_subprocess_exec(
                 "python3", "main.py", user_text,
                 stdout=subprocess.PIPE,
@@ -36,7 +39,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif error_text:
                 extracted_result = error_text
             else:
-                extracted_result = "لم يتم إرجاع أي نتيجة."
+                extracted_result = "لم يتم إرجاع أي نتيجة من الأداة."
         except asyncio.TimeoutError:
             try:
                 process.kill()
@@ -51,7 +54,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-        # إرسال النتيجة الصافية بدون أزرار
+        # إرسال النتيجة الصافية بدون أي أزرار
         await update.message.reply_text(extracted_result)
     else:
         await update.message.reply_text("يرجى إرسال رابط دلتا صحيح يبدأ بـ http:// أو https://.")
@@ -60,7 +63,7 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    print("Delta Bot is running...")
+    print("Delta Bot is running without buttons...")
     app.run_polling()
 
 if __name__ == "__main__":
