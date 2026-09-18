@@ -10,7 +10,7 @@ try:
 except ImportError:
     bypass_link_core = None
 
-TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
+TOKEN = "8975068395:AAFD_ups14mfcBbopumiZt7NCxzXaxmwC7s"
 ADMIN_ID = 6697426766
 
 bot = Bot(token=TOKEN)
