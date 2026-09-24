@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
+TOKEN = "8860565104:AAEVEX4ODFumP981Sto89sCZZmOe7MSHtzU"
 ADMIN_ID = 6697426766
 API_URL = "http://127.0.0.1:2233/delta"
 
@@ -93,7 +93,7 @@ async def handle_user_links(message: Message):
                                 parse_mode="Markdown"
                             )
                         else:
-                            await processing_msg.edit_text(f"❌ **فشل التخطي:**\n`{error}`")
+                            await processing_msg.edit_xt(f"❌ **فشل التخطي:**\n`{error}`")
                     else:
                         await processing_msg.edit_text(f"❌ حدث خطأ في استجابة السيرفر (كود: {response.status})")
         except Exception as e:
@@ -102,9 +102,8 @@ async def handle_user_links(message: Message):
         await message.answer("يرجى إرسال رابط صالح يبدأ بـ http.")
 
 async def main():
-    # تشغيل السيرفر المحلي أولاً
     start_local_server()
-    await asyncio.sleep(2) # إعطاء ثوانٍ معدودة ليعمل السيرفر بكشل كامل
+    await asyncio.sleep(2)
     
     await bot.delete_webhook(drop_pending_updates=True)
     print("🤖 بوت تيليجرام يعمل الآن والسيرفر يعمل معه في الخلفية...")
@@ -114,6 +113,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     finally:
-        # إيقاف السيرفر عند إغلاق البوت لضمان عدم بقائه يعمل في الخلفية
         if server_process:
             server_process.terminate()
