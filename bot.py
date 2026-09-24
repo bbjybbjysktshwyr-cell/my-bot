@@ -1,16 +1,27 @@
 import os
 import asyncio
+import subprocess
 import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-TOKEN = "8860565104:AAEVEX4ODFumP981Sto89sCZZmOe7MSHtzU"
+TOKEN = "8966597040:AAFRs5K7XJD5bXToG4m3IqVSHy6gw7BgSDQ"
 ADMIN_ID = 6697426766
 API_URL = "http://127.0.0.1:2233/delta"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
+# تشغيل السيرفر تلقائياً في الخلفية عند بدء تشغيل البوت
+server_process = None
+
+def start_local_server():
+    global server_process
+    if server_process is None:
+        # تشغيل سيرفر بايثون على البورت 2233
+        server_process = subprocess.Popen(["python", "server.py", "--port", "2233"])
+        print("🚀 تم تشغيل سيرفر دلتا المحلي تلقائياً في الخلفية...")
 
 def get_main_menu(is_admin=False):
     keyboard = [
@@ -36,7 +47,7 @@ async def bypass_prompt(callback: CallbackQuery):
         [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
     ])
     await callback.message.edit_text(
-        "⚡️ **أرسل رابط Delta الآن في المحادثة وسأقوم بجلب المفتاح لك عبر السيرفر المحلي!**",
+        "⚡️ **أرسل رابط Delta الآن في المحادثة وسأقوم بجلب المفتاح لك تلقائياً!**",
         reply_markup=keyboard
     )
     await callback.answer()
@@ -45,7 +56,7 @@ async def bypass_prompt(callback: CallbackQuery):
 async def about_callback(callback: CallbackQuery):
     is_admin = (callback.from_user.id == ADMIN_ID)
     await callback.message.edit_text(
-        "هذا البوت مرتبط مباشرة بسيرفر تخطي دلتا المحلي ويعمل بكفاءة عالية.",
+        "هذا البوت يقوم بتشغيل السيرفر المحلي وجلب مفاتيح دلتا بكفاءة عالية.",
         reply_markup=get_main_menu(is_admin)
     )
     await callback.answer()
@@ -91,9 +102,18 @@ async def handle_user_links(message: Message):
         await message.answer("يرجى إرسال رابط صالح يبدأ بـ http.")
 
 async def main():
+    # تشغيل السيرفر المحلي أولاً
+    start_local_server()
+    await asyncio.sleep(2) # إعطاء ثوانٍ معدودة ليعمل السيرفر بكشل كامل
+    
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 بوت تيليجرام يعمل الآن ومربوط بالسيرفر المحلي...")
+    print("🤖 بوت تيليجرام يعمل الآن والسيرفر يعمل معه في الخلفية...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    finally:
+        # إيقاف السيرفر عند إغلاق البوت لضمان عدم بقائه يعمل في الخلفية
+        if server_process:
+            server_process.terminate()
