@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-TOKEN = "8530713928:AAFIwuFFfrlybi_FVoXRzpQq-OBFKgmBQEU"
+TOKEN = "8618789887:AAGKxnDN6a0ulOS9aLyB1HnuNygukFsIVHs"
 ADMIN_ID = 6697426766
 API_URL = "http://127.0.0.1:2233/delta"
 
