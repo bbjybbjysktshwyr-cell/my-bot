@@ -49,11 +49,6 @@ def load_cache():
 def save_cache_now():
     try:
         with lock:
-            # 落盘前顺手把过期的清掉。
-            #
-            # 以前只在 cache_get 命中时删单条,没被查到的过期条目会一直留在文件里
-            # 越攒越多 —— 实测线上 1413 条里有 808 条（57%）早已过期。读的时候会跳过
-            # 它们所以不影响结果,但文件白白大一倍,看着也像有脏数据。
             now = time.time()
             for h in [h for h, v in key_cache.items()
                       if now - v.get("ts", 0) >= CACHE_TTL]:
@@ -126,13 +121,16 @@ def solo_pass(ticket):
 
 
 def run_solves(ticket):
-    key, err, st = solo_pass(ticket)
-    if key or err.startswith("solve exception"):
-        return key, err, st
-    if err.startswith("无效链接"):
-        return key, err, st
-    time.sleep(0.3)
-    return solo_pass(ticket)
+    max_retries = 3
+    for attempt in range(max_retries):
+        key, err, st = solo_pass(ticket)
+        if key:
+            return key, err, st
+        if err and (err.startswith("无效链接") or err.startswith("invalid url")):
+            return key, err, st
+        if attempt < max_retries - 1:
+            time.sleep(1.0)
+    return key, err, st
 
 
 @app.get("/delta")
@@ -145,10 +143,7 @@ async def delta(url: str):
         return {"key": None, "error": "invalid url", "cached": False,
                 "made_by": MADE_BY, "qq_group": QQ_GROUP,
                 "times": fmt_t(time.time() - t0)}
-    # 长度不够的在这里就挡掉,别进求解流程。
-    #
-    # 求解一趟要 5 秒以上,而这种链接注定失败 —— 早点说清楚比让人等着强,顺带也省掉
-    # 一次没意义的自动重试和一个白烧的验证码 token。
+
     if len(ticket) < MIN_TICKET_LEN:
         return {"key": None, "error": "invalid url (no ticket)", "cached": False,
                 "made_by": MADE_BY, "qq_group": QQ_GROUP,
@@ -204,9 +199,7 @@ if __name__ == "__main__":
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--workers", "-w", type=int, default=10)
     args = ap.parse_args()
-    # 后台盯上游客户端版本：启动刷一次，之后每小时一次。
-    # Watch the far end's client version in the background: once at startup,
-    # then hourly.
+    
     AUTH.start_version_watcher()
     try:
         import resource
