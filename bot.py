@@ -9,7 +9,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-TOKEN = "8860565104:AAEVEX4ODFumP981Sto89sCZZmOe7MSHtzU"
+TOKEN = "8618789887:AAGKxnDN6a0ulOS9aLyB1HnuNygukFsIVHs"
 
 # الآيدي الخاص بك فقط للتحكم
 ADMIN_ID = 6697426766
