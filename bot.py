@@ -3,8 +3,7 @@ import asyncio
 import subprocess
 import aiohttp
 from aiogram import Bot, Dispatcher, F
-AAEVEX4ODFumP981Sto89sCZZmOe7MSHtzU"
-ADMINmP aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
 TOKEN = "8618789887:AAGKxnDN6a0ulOS9aLyB1HnuNygukFsIVHs"
