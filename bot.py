@@ -6,20 +6,18 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-TOKEN = "8618789887:AAGKxnDN6a0ulOS9aLyB1HnuNygukFsIVHs"
+TOKEN = "8530713928:AAFIwuFFfrlybi_FVoXRzpQq-OBFKgmBQEU"
 ADMIN_ID = 6697426766
 API_URL = "http://127.0.0.1:2233/delta"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# تشغيل السيرفر تلقائياً في الخلفية عند بدء تشغيل البوت
 server_process = None
 
 def start_local_server():
     global server_process
     if server_process is None:
-        # تشغيل سيرفر بايثون على البورت 2233
         server_process = subprocess.Popen(["python", "server.py", "--port", "2233"])
         print("🚀 تم تشغيل سيرفر دلتا المحلي تلقائياً في الخلفية...")
 
@@ -78,7 +76,8 @@ async def handle_user_links(message: Message):
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(API_URL, params={"url": text}, timeout=60) as response:
+                # تم زيادة وقت الانتظار إلى 90 ثانية لكي يتحمل الرابط المراحل المتعددة
+                async with session.get(API_URL, params={"url": text}, timeout=90) as response:
                     if response.status == 200:
                         data = await response.json()
                         key = data.get("key")
@@ -93,7 +92,8 @@ async def handle_user_links(message: Message):
                                 parse_mode="Markdown"
                             )
                         else:
-                            await processing_msg.edit_xt(f"❌ **فشل التخطي:**\n`{error}`")
+                            # تم تصحيح الخطأ هنا من edit_xt إلى edit_text
+                            await processing_msg.edit_text(f"❌ **فشل التخطي:**\n`{error}`")
                     else:
                         await processing_msg.edit_text(f"❌ حدث خطأ في استجابة السيرفر (كود: {response.status})")
         except Exception as e:
