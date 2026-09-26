@@ -1,25 +1,27 @@
 import os
 import asyncio
-import subprocess
-import aiohttp
+import traceback
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
+# استيراد ملفاتك الداخلية مباشرة لضمان عمل كافة الوظائف
+import main as MAIN_ENGINE
+import auth_client as AUTH
+try:
+    import link_generator
+except ImportError:
+    pass
+try:
+    import server
+except ImportError:
+    pass
+
 TOKEN = "8618789887:AAGKxnDN6a0ulOS9aLyB1HnuNygukFsIVHs"
 ADMIN_ID = 6697426766
-API_URL = "http://127.0.0.1:2233/delta"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
-
-server_process = None
-
-def start_local_server():
-    global server_process
-    if server_process is None:
-        server_process = subprocess.Popen(["python", "server.py", "--port", "2233"])
-        print("🚀 تم تشغيل سيرفر دلتا المحلي تلقائياً في الخلفية...")
 
 def get_main_menu(is_admin=False):
     keyboard = [
@@ -45,7 +47,7 @@ async def bypass_prompt(callback: CallbackQuery):
         [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="back_to_menu")]
     ])
     await callback.message.edit_text(
-        "⚡️ **أرسل رابط Delta الآن في المحادثة وسأقوم بجلب المفتاح لك تلقائياً!**",
+        "⚡️ **أرسل رابط Delta الآن في المحادثة وسأقوم بمعالجته عبر ملفات الأداة مباشرة!**",
         reply_markup=keyboard
     )
     await callback.answer()
@@ -54,7 +56,7 @@ async def bypass_prompt(callback: CallbackQuery):
 async def about_callback(callback: CallbackQuery):
     is_admin = (callback.from_user.id == ADMIN_ID)
     await callback.message.edit_text(
-        "هذا البوت يقوم بتشغيل السيرفر المحلي وجلب مفاتيح دلتا بكفاءة عالية.",
+        "هذا البوت يدمج كافة ملفات التجاوز (main, auth_client, link_generator) لاستخراج المفاتيح بكفاءة عالية.",
         reply_markup=get_main_menu(is_admin)
     )
     await callback.answer()
@@ -72,46 +74,64 @@ async def back_menu(callback: CallbackQuery):
 async def handle_user_links(message: Message):
     text = message.text.strip()
     if "http" in text:
-        processing_msg = await message.answer("⏳ جاري التواصل مع السيرفر وتخطي الرابط (قد يستغرق بضع ثوانٍ)...")
+        processing_msg = await message.answer("⏳ جاري معالجة الرابط عبر ملفات الأداة ومحاولة التجاوز...")
         
         try:
-            async with aiohttp.ClientSession() as session:
-                # تم زيادة وقت الانتظار إلى 90 ثانية لكي يتحمل الرابط المراحل المتعددة
-                async with session.get(API_URL, params={"url": text}, timeout=90) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        key = data.get("key")
-                        error = data.get("error")
-                        times = data.get("times")
-                        cached = data.get("cached", False)
-                        
-                        if key:
-                            cache_text = " (من التخزين المؤقت ⚡️)" if cached else f" (الوقت: {times})"
-                            await processing_msg.edit_text(
-                                f"🎉 **تم بنجاح استخراج المفتاح!**{cache_text}\n\n`{key}`",
-                                parse_mode="Markdown"
-                            )
-                        else:
-                            # تم تصحيح الخطأ هنا من edit_xt إلى edit_text
-                            await processing_msg.edit_text(f"❌ **فشل التخطي:**\n`{error}`")
-                    else:
-                        await processing_msg.edit_text(f"❌ حدث خطأ في استجابة السيرفر (كود: {response.status})")
+            # استخراج التيكت باستخدام وظائف auth_client الحقيقية
+            try:
+                ticket = AUTH.extract_ticket(text)
+            except Exception:
+                ticket = None
+
+            if not ticket or len(ticket) < getattr(AUTH, 'MIN_TICKET_LEN', 30):
+                ticket = text
+
+            # تشغيل دالة solve_chain من ملف main في خلفية غير متزامنة
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, 
+                MAIN_ENGINE.solve_chain, 
+                ticket, 
+                False, 
+                getattr(MAIN_ENGINE, "MAX_ROUNDS", 3),
+                None
+            )
+            
+            # استخراج المفتاح بدقة من النتيجة أياً كان شكلها (Tuple أو Dict أو String)
+            key = None
+            if isinstance(result, tuple):
+                key = result[0]
+            elif isinstance(result, dict):
+                key = result.get("key") or result.get("token")
+            else:
+                key = result
+
+            if key and str(key) != "None":
+                await processing_msg.edit_text(
+                    f"🎉 **تم بنجاح استخراج المفتاح!**\n\n`{key}`",
+                    parse_mode="Markdown"
+                )
+            else:
+                await processing_msg.edit_text("❌ **فشل التخطي:**\n`لم يتم العثور على المفتاح أو أن الرابط تالف أو منتهي الصلاحية.`")
+                
         except Exception as e:
-            await processing_msg.edit_text(f"❌ حدث خطأ أثناء الاتصال بالسيرفر المحلي:\n`{str(e)}`")
+            traceback.print_exc()
+            await processing_msg.edit_text(f"❌ حدث خطأ أثناء معالجة الرابط:\n`{str(e)}`")
     else:
         await message.answer("يرجى إرسال رابط صالح يبدأ بـ http.")
 
 async def main():
-    start_local_server()
-    await asyncio.sleep(2)
-    
+    try:
+        AUTH.start_version_watcher()
+    except Exception:
+        pass
+
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🤖 بوت تيليجرام يعمل الآن والسيرفر يعمل معه في الخلفية...")
+    print("🤖 بوت تيليجرام يعمل الآن ومستعد لاستدعاء كافة ملفات التجاوز الداخلية...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    finally:
-        if server_process:
-            server_process.terminate()
+    except KeyboardInterrupt:
+        print("تم إيقاف البوت.")
