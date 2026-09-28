@@ -1,9 +1,3 @@
-# Made by A.J Yatez
-#    - https://trw.lat/ds - MCB 
-#    - Version 2 with ""INSTANT"" Solving, fixed issues (it only working with deltax links) n shi - Userscript will be always up to date, install it! https://trw.lat/install/userscript/u.raw.js?v=githubgooning_givmelastversionplesk
-#    - Plesk give it a star ily <3
-#    - Happy birthday to you fat nigger aka .sentric on discord
-
 import json
 import math
 import random
