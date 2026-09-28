@@ -1,3 +1,4 @@
+# Made by A.J Yatez - Updated
 import json
 import math
 import random
@@ -16,15 +17,14 @@ import websocket
 import requests
 
 TURNSTILE_KEY = "0x4AAAAAAEO6tvECK-X4VCvq"
-CAPMONSTER_KEY = "YOUR_CAPMONSTER_KEY" # OR REPLACE THE CAPMONSTER LOGIC WITH THE ONE FROM YOUR SOLVER
+CAPMONSTER_KEY = "YOUR_CAPMONSTER_KEY"
 
 DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
 )
 
-
-def make_session(hostname): #
+def make_session(hostname):
     origin = f"https://{hostname}"
     session = requests.Session()
     session.headers.update({
@@ -46,12 +46,10 @@ def make_session(hostname): #
     })
     return session
 
-
-def wildcard_search(text, pattern): #
+def wildcard_search(text, pattern):
     regex = re.escape(pattern).replace(r"\*", "(.*?)")
     match = re.search(regex, text)
     return match.group(1) if match else None
-
 
 def decode_resp(response):
     encoding = (response.headers.get("Content-Encoding") or "").lower()
@@ -65,15 +63,12 @@ def decode_resp(response):
     except Exception:
         return content.decode("utf-8", errors="ignore")
 
-
 def cln_url(u):
     return re.sub(r'<.*|".*', '', u)
-
 
 def ext_info(response, pattern):
     match = re.search(pattern, response)
     return cln_url(match.group(1)) if match else None
-
 
 def get_cdn_tid(content):
     if not content:
@@ -85,7 +80,6 @@ def get_cdn_tid(content):
         return (cdn, tid, key)
     return (None, None, None)
 
-
 def get_p_vars(content):
     pvars = {}
     for m in re.finditer(r"p\['(\w+)'\]\s*=\s*([^\n;]+)", content):
@@ -95,7 +89,6 @@ def get_p_vars(content):
         pvars[k] = v
     return pvars
 
-
 def decrypt_data(encoded_data, key_length=5):
     try:
         raw = base64.b64decode(encoded_data)
@@ -103,7 +96,6 @@ def decrypt_data(encoded_data, key_length=5):
         return bytes(b ^ key[i % key_length] for i, b in enumerate(blob)).decode('utf-8').strip()
     except Exception:
         return encoded_data.strip()
-
 
 def _ws_proxy_kwargs(session):
     proxy_dict = getattr(session, 'proxies', {}) or {}
@@ -123,7 +115,6 @@ def _ws_proxy_kwargs(session):
         kwargs['http_proxy_auth'] = (parsed.username, parsed.password)
     return kwargs
 
-
 def _ws_header_list(session):
     ua = session.headers.get(
         'User-Agent',
@@ -140,17 +131,14 @@ def _ws_header_list(session):
         headers.append(f'Cookie: {cookie_str}')
     return headers
 
-
 def _fire(fn, *args, **kwargs):
     threading.Thread(target=lambda: _silent(fn, *args, **kwargs), daemon=True).start()
-
 
 def _silent(fn, *args, **kwargs):
     try:
         fn(*args, **kwargs)
     except Exception:
         pass
-
 
 def _get(session, url, **kw):
     if not url:
@@ -161,7 +149,6 @@ def _get(session, url, **kw):
     kw.setdefault('allow_redirects', True)
     return session.get(url, **kw)
 
-
 def _beacon_post(session, url):
     if not url:
         return
@@ -169,15 +156,16 @@ def _beacon_post(session, url):
         url = 'https:' + url
     session.post(url, data=b'', headers={'Content-Type': 'text/plain;charset=UTF-8'}, timeout=4)
 
-
 def _parse_r_payload(message):
     if not isinstance(message, str) or not message.startswith('r:'):
         return None
     payload = ''.join(ch for ch in message[2:].strip() if 32 <= ord(ch) <= 126)
     if payload.startswith('http://') or payload.startswith('https://'):
         return payload
-    return decrypt_data(payload)
-
+    decrypted = decrypt_data(payload)
+    if decrypted.startswith('http://') or decrypted.startswith('https://'):
+        return decrypted
+    return payload
 
 def canserbero(session, server, tasks, p_key, tid, session_id, page_origin, done, TLeft=45):
     if not tasks:
@@ -229,7 +217,7 @@ def canserbero(session, server, tasks, p_key, tid, session_id, page_origin, done
             if message == 'Refresh Page':
                 break
             result = _parse_r_payload(message)
-            if result:
+            if result and ("http://" in result or "https://" in result):
                 done["result"] = result
                 return
     except Exception:
@@ -242,7 +230,6 @@ def canserbero(session, server, tasks, p_key, tid, session_id, page_origin, done
             except Exception:
                 pass
 
-
 def transform_uuid(uuid_str):
     m = re.findall(r'[A-Z]', uuid_str)
     key_str = ''.join(m[:4]) if m else 'KEY1'
@@ -251,11 +238,9 @@ def transform_uuid(uuid_str):
     xored = bytes(uuid_bytes[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(uuid_bytes)))
     return base64.b64encode(xored).decode('ascii')
 
-
 def _fract(r6, n1):
     n_ = 43758.5453 * math.sin(12.9898 * r6 + 78.233 * n1)
     return n_ - math.floor(n_)
-
 
 def solve_webgl_nonce(uuid_str):
     y6 = int(uuid_str.replace('-', '')[:8], 16) / 4294967295.0
@@ -267,14 +252,8 @@ def solve_webgl_nonce(uuid_str):
             return nonce
     return 99999
 
-
 def make_botd(session_uuid):
-
-    nonce = solve_webgl_nonce(session_uuid) # tbh i didn't see this before in the last version - WebGL PoW, thats why it was failing
-    # What I’m wondering is, why did the previous bypasser without PoW let you bypass Deltax links but not links from other services? 
-    # It honestly seems intentional, because why would you check PoW on every link except those from one specific creator? 
-    # Either their system is shit, or they’re hiding some shit here
-
+    nonce = solve_webgl_nonce(session_uuid)
     solve_time = int(nonce * random.uniform(1.15, 1.4) + random.randint(20, 80))
     botd = {
         "bot": False,
@@ -291,7 +270,6 @@ def make_botd(session_uuid):
     ct = AESGCM(aes_key).encrypt(iv, plaintext, None)
     botd["encrypted"] = base64.b64encode(iv + ct).decode('ascii')
     return json.dumps(botd, separators=(",", ":"))
-
 
 def getParameters(raw_string):
     text = (raw_string or "").strip()
@@ -310,9 +288,7 @@ def getParameters(raw_string):
         "allow_unlocker": data[30],
     }
 
-
 def solve_turnstile(origin, cdata=None, action=None):
-    # REPLACE THIS WITH YOUR OWN TURNSTILE SOLVER LOGIC OR CAPTCHA SOLVER PROVIDER
     task = {"type": "TurnstileTask", "websiteURL": origin, "websiteKey": TURNSTILE_KEY}
     if cdata:
         task["data"] = cdata
@@ -338,7 +314,6 @@ def solve_turnstile(origin, cdata=None, action=None):
             return res["solution"]["token"]
         time.sleep(0.4)
 
-
 def _as_bool(v, default=True):
     if v is None:
         return default
@@ -348,11 +323,7 @@ def _as_bool(v, default=True):
         return v.lower() in ("1", "true")
     return bool(v)
 
-
 def OG_getDest(url, verbose_cb=None):
-    # verbose_cb is a parameter for TRW-API - maybe you can use it for your own project
-    # why its still here? i told Grok to rewrite the code without CF_Boom / Internal APIs so y'all can run it on raw python
-    # i didn't skid with grok btw, it made the original code and got it working, it just removed cfboom api calls n shi
     vcb = verbose_cb or (lambda msg: None)
     hostname = urlparse(url).hostname
     session = None
@@ -362,7 +333,7 @@ def OG_getDest(url, verbose_cb=None):
         return f"{time.perf_counter() - t0:.2f}s"
 
     try:
-        vcb(f"Obtaining AdMaven/LootLabs session for {hostname}...")
+        vcb(f"Obtaining session for {hostname}...")
         session = make_session(hostname)
         origin = f"https://{hostname}"
 
@@ -531,8 +502,7 @@ def OG_getDest(url, verbose_cb=None):
         ws_thread.join(timeout=20)
         if done["result"]:
             elapsed = taken()
-            vcb(f"AdMaven/LootLabs paywall bypassed via WebSocket  time taken: {elapsed}")
-            print(f"time taken: {elapsed}")
+            vcb(f"Bypassed via WebSocket, time taken: {elapsed}")
             return done["result"]
 
         return f'bypass fail! All WS candidates failed ({taken()})'
@@ -546,11 +516,5 @@ def OG_getDest(url, verbose_cb=None):
             except Exception:
                 pass
 
-
 def getDest(url, verbose_cb=None):
     return OG_getDest(url, verbose_cb=verbose_cb)
-
-
-
-target = "https://links.lootlabs.gg/s?2j2wXWWH" # new link yay
-print(getDest(target, verbose_cb=print))
