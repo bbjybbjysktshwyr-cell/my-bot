@@ -1,0 +1,22 @@
+# Python 缓存和虚拟环境 / Python caches and virtualenv
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+
+# 记下来的钥匙，跑起来才有，不该进版本库
+# Remembered keys: created at runtime, should not be committed
+.key_cache.json
+.key_cache.json.tmp
+
+# numba 的编译缓存 / numba's compilation cache
+.numba_cache/
+
+# 编辑器和系统的杂七杂八 / editor and system clutter
+*.swp
+*.swo
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
