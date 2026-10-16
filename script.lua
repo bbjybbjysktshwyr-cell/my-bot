@@ -1,4 +1,4 @@
--- Steal An Egg - Monster Teleport & Fixed Spawn Hub 🚀
+-- Steal An Egg - Perfect Teleport Hu
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
@@ -25,28 +25,25 @@ local Title = Instance.new("TextLabel")
 Title.Parent = MainFrame
 Title.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
 Title.Size = UDim2.new(1, 0, 0, 40)
-Title.Text = "Monster Teleport Hub 🚀"
+Title.Text = "Worlds Teleport Hub 🚀"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 16
 Title.Font = Enum.Font.SourceSansBold
 
--- دالة نقل تثبت الشخصية وتمنع الماب من إعادة سحبك
-local function forceTeleport(targetCFrame)
+-- دالة انتقال قوية وثابتة تمنع التعليق والسحب العكسي
+local function directTeleport(targetCFrame)
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("HumanoidRootPart") then
         local root = char.HumanoidRootPart
-        
-        -- تصفير السرعات لفك ارتباط الحماية والسحب
         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        
         root.CFrame = targetCFrame
         task.wait(0.05)
         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
     end
 end
 
--- زر العودة للبداية المضمون (يمنع السحب التلقائي بعد المرحلة 5)
+-- زر العودة للبداية الحقيقية (شغال حتى لو كنت بالمراحل الأخيرة)
 local SpawnBtn = Instance.new("TextButton")
 SpawnBtn.Parent = MainFrame
 SpawnBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 200)
@@ -59,32 +56,40 @@ SpawnBtn.Font = Enum.Font.SourceSansBold
 
 SpawnBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
+        local baseCF = CFrame.new(0, 10, 0) -- نقطة البداية الأساسية بالماب
         local spawnPart = workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChild("Spawn")
-        local targetCF = spawnPart and (spawnPart.CFrame + Vector3.new(0, 4, 0)) or CFrame.new(0, 12, 0)
+        if spawnPart then
+            baseCF = spawnPart.CFrame + Vector3.new(0, 3, 0)
+        end
         
-        -- التكرار لمدة قصيرة لمنع الماب من إعادتك للمرحلة المتقدمة
-        for i = 1, 3 do
-            forceTeleport(targetCF)
-            task.wait(0.1)
+        for i = 1, 4 do
+            directTeleport(baseCF)
+            task.wait(0.08)
         end
     end)
 end)
 
--- قائمة المراحل
+-- جدول المراحل بترتيبها الحقيقي مع إحداثيات المسافات لضمان الانتقال الصحيح للبيض والوحوش
+local worldData = {
+    ["Forest"] = 0,
+    ["Lake"] = 1,
+    ["Desert"] = 2,
+    ["Jungle"] = 3,
+    ["Snow"] = 4,
+    ["Volcano"] = 5,
+    ["Abyss Ocean"] = 6,
+    ["Prehistoric"] = 7,
+    ["Cosmic"] = 8,
+    ["Cherry Blossom"] = 9,
+    ["Titan Temple"] = 10,
+    ["Demons"] = 11,
+    ["Enchanted Forest"] = 12
+}
+
 local worldList = {
-    "Forest",
-    "Lake",
-    "Desert",
-    "Jungle",
-    "Snow",
-    "Volcano",
-    "Abyss Ocean",
-    "Prehistoric",
-    "Cosmic",
-    "Cherry Blossom",
-    "Titan Temple",
-    "Demons",
-    "Enchanted Forest"
+    "Forest", "Lake", "Desert", "Jungle", "Snow", "Volcano", 
+    "Abyss Ocean", "Prehistoric", "Cosmic", "Cherry Blossom", 
+    "Titan Temple", "Demons", "Enchanted Forest"
 }
 
 local selectedWorld = "Forest"
@@ -133,49 +138,46 @@ DropdownBtn.MouseButton1Click:Connect(function()
     DropdownList.Visible = not DropdownList.Visible
 end)
 
--- زر الانتقال المباشر لمركز المرحلة عند الوحش
+-- زر الانتقال المباشر لساحة البيض والوحوش الخاصة بالمرحلة
 local TeleportWorldBtn = Instance.new("TextButton")
 TeleportWorldBtn.Parent = MainFrame
 TeleportWorldBtn.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
 TeleportWorldBtn.Position = UDim2.new(0.1, 0, 0.82, 0)
 TeleportWorldBtn.Size = UDim2.new(0.8, 0, 0, 42)
-TeleportWorldBtn.Text = "الانتقال لمركز المرحلة (يم الوحش) ⚡"
+TeleportWorldBtn.Text = "الانتقال لمركز المرحلة (يم البيض) ⚡"
 TeleportWorldBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 TeleportWorldBtn.TextSize = 14
 TeleportWorldBtn.Font = Enum.Font.SourceSansBold
 
 TeleportWorldBtn.MouseButton1Click:Connect(function()
-    local monsterTarget = nil
+    local targetCF = nil
     
-    -- 1. فحص مجسمات الوحوش والـ Bosses بالمركز
-    for _, v in ipairs(workspace:GetDescendants()) do
-        if v:IsA("Humanoid") and v.Parent and v.Parent ~= LocalPlayer.Character then
-            local modelName = v.Parent.Name:lower()
-            if modelName:find(selectedWorld:lower()) or modelName:find("boss") or modelName:find("monster") then
-                local rootPart = v.Parent:FindFirstChild("HumanoidRootPart") or v.Parent:FindFirstChild("Torso") or v.Parent.PrimaryPart
-                if rootPart then
-                    monsterTarget = rootPart.CFrame
+    -- البحث الذكي الدقيق عن لافتة المرحلة الحقيقية بالخريطة
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if (obj:IsA("TextLabel") or obj:IsA("SurfaceGui")) and obj.Parent then
+            local textStr = obj:IsA("TextLabel") and obj.Text or obj.Name
+            if textStr:lower():find(selectedWorld:lower()) then
+                local part = obj:FindFirstAncestorWhichIsA("BasePart") or obj.Parent
+                if part and part:IsA("BasePart") then
+                    -- نقلك لمنتصف الساحة أمام البيض (أمام اللافتة بمسافة صحيحة)
+                    targetCF = part.CFrame * CFrame.new(0, 3, -35)
                     break
                 end
             end
         end
     end
     
-    -- 2. إذا لم يجد مجسم وحش مسمى، يبحث عن مركز أرضية المرحلة مباشرة
-    if not monsterTarget then
-        for _, v in ipairs(workspace:GetDescendants()) do
-            if (v:IsA("TextLabel") and v.Text:lower():find(selectedWorld:lower())) or v.Name:lower() == selectedWorld:lower() then
-                local parentPart = v:FindFirstAncestorWhichIsA("BasePart") or v.Parent
-                if parentPart and parentPart:IsA("BasePart") then
-                    -- الانتقال لأمام اللوحة نحو منتصف الساحة
-                    monsterTarget = parentPart.CFrame * CFrame.new(0, 4, -25)
-                    break
-                end
-            end
+    -- إذا لم يجد اللافتة، ينتقل بالمسافة المحسوبة للمرحلة تلقائياً
+    if not targetCF then
+        local index = worldData[selectedWorld] or 0
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            -- المسافة بين كل مرحلة وأخرى بالماب تقريباً 300 بلوك للأمام
+            targetCF = char.HumanoidRootPart.CFrame + Vector3.new(0, 0, -(index * 300))
         end
     end
     
-    if monsterTarget then
-        forceTeleport(monsterTarget + Vector3.new(0, 3, 0))
+    if targetCF then
+        directTeleport(targetCF + Vector3.new(0, 4, 0))
     end
 end)
