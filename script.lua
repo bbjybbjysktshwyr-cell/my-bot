@@ -1,4 +1,4 @@
--- Steal An Egg - Fixed Auto Steal Hub
+-- Steal An Egg - Areas Teleport Hub 🚀
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -17,7 +17,7 @@ local MainFrame = Instance.new("Frame")
 MainFrame.Parent = ScreenGui
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 MainFrame.Position = UDim2.new(0.3, 0, 0.2, 0)
-MainFrame.Size = UDim2.new(0, 260, 0, 360)
+MainFrame.Size = UDim2.new(0, 260, 0, 340)
 MainFrame.Active = true
 MainFrame.Draggable = true
 
@@ -26,175 +26,100 @@ local Title = Instance.new("TextLabel")
 Title.Parent = MainFrame
 Title.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
 Title.Size = UDim2.new(1, 0, 0, 40)
-Title.Text = "Steal An Egg - Target Hub 🚀"
+Title.Text = "Teleport Areas Hub 🚀"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 16
 Title.Font = Enum.Font.SourceSansBold
 
--- عنوان الاختيار
-local TargetLabel = Instance.new("TextLabel")
-TargetLabel.Parent = MainFrame
-TargetLabel.BackgroundTransparency = 1
-TargetLabel.Position = UDim2.new(0.1, 0, 0.13, 0)
-TargetLabel.Size = UDim2.new(0.8, 0, 0, 20)
-TargetLabel.Text = "اختر نوع البيضة المستهدفة:"
-TargetLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
-TargetLabel.TextSize = 13
-TargetLabel.Font = Enum.Font.SourceSans
+-- زر منطقة الأمان / البداية (Spawn)
+local SpawnBtn = Instance.new("TextButton")
+SpawnBtn.Parent = MainFrame
+SpawnBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 200)
+SpawnBtn.Position = UDim2.new(0.1, 0, 0.18, 0)
+SpawnBtn.Size = UDim2.new(0.8, 0, 0, 40)
+SpawnBtn.Text = "منطقة البداية / الأمان 🛡️"
+SpawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpawnBtn.TextSize = 14
+SpawnBtn.Font = Enum.Font.SourceSansBold
 
--- زر القائمة المنسدلة (Dropdown)
-local DropdownBtn = Instance.new("TextButton")
-DropdownBtn.Parent = MainFrame
-DropdownBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-DropdownBtn.Position = UDim2.new(0.1, 0, 0.20, 0)
-DropdownBtn.Size = UDim2.new(0.8, 0, 0, 35)
-DropdownBtn.Text = "Any Egg (أي بيضة) ▼"
-DropdownBtn.TextColor3 = Color3.fromRGB(0, 255, 150)
-DropdownBtn.TextSize = 14
-DropdownBtn.Font = Enum.Font.SourceSansBold
+-- زر الانتقال للمنطقة الأولى (Area 1)
+local Area1Btn = Instance.new("TextButton")
+Area1Btn.Parent = MainFrame
+Area1Btn.BackgroundColor3 = Color3.fromRGB(80, 80, 100)
+Area1Btn.Position = UDim2.new(0.1, 0, 0.35, 0)
+Area1Btn.Size = UDim2.new(0.8, 0, 0, 40)
+Area1Btn.Text = "الانتقال للمنطقة الأولى 📍"
+Area1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Area1Btn.TextSize = 14
+Area1Btn.Font = Enum.Font.SourceSansBold
 
--- إطار خيارات القائمة المنسدلة
-local DropdownList = Instance.new("ScrollingFrame")
-DropdownList.Parent = MainFrame
-DropdownList.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
-DropdownList.Position = UDim2.new(0.1, 0, 0.31, 0)
-DropdownList.Size = UDim2.new(0.8, 0, 0, 110)
-DropdownList.Visible = false
-DropdownList.CanvasSize = UDim2.new(0, 0, 2, 0)
-DropdownList.ScrollBarThickness = 5
+-- زر الانتقال للمنطقة الثانية (Area 2)
+local Area2Btn = Instance.new("TextButton")
+Area2Btn.Parent = MainFrame
+Area2Btn.BackgroundColor3 = Color3.fromRGB(150, 50, 200)
+Area2Btn.Position = UDim2.new(0.1, 0, 0.52, 0)
+Area2Btn.Size = UDim2.new(0.8, 0, 0, 40)
+Area2Btn.Text = "الانتقال للمنطقة الثانية ⚡"
+Area2Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Area2Btn.TextSize = 14
+Area2Btn.Font = Enum.Font.SourceSansBold
 
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Parent = DropdownList
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+-- زر الانتقال للمنطقة المتقدمة / الأخيرة (Area 3)
+local Area3Btn = Instance.new("TextButton")
+Area3Btn.Parent = MainFrame
+Area3Btn.BackgroundColor3 = Color3.fromRGB(220, 100, 30)
+Area3Btn.Position = UDim2.new(0.1, 0, 0.69, 0)
+Area3Btn.Size = UDim2.new(0.8, 0, 0, 40)
+Area3Btn.Text = "الانتقال للمنطقة المتقدمة 💎"
+Area3Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Area3Btn.TextSize = 14
+Area3Btn.Font = Enum.Font.SourceSansBold
 
-local presetTargets = {"Any Egg (أي بيضة)", "Secret", "Divine", "Mythical"}
-
--- زر التحديث
-local RefreshBtn = Instance.new("TextButton")
-RefreshBtn.Parent = MainFrame
-RefreshBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
-RefreshBtn.Position = UDim2.new(0.1, 0, 0.65, 0)
-RefreshBtn.Size = UDim2.new(0.8, 0, 0, 32)
-RefreshBtn.Text = "تحديث فحص الخريطة 🔄"
-RefreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-RefreshBtn.TextSize = 13
-RefreshBtn.Font = Enum.Font.SourceSansBold
-
--- زر السرقة التلقائية
-local AutoStealBtn = Instance.new("TextButton")
-AutoStealBtn.Parent = MainFrame
-AutoStealBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-AutoStealBtn.Position = UDim2.new(0.1, 0, 0.76, 0)
-AutoStealBtn.Size = UDim2.new(0.8, 0, 0, 38)
-AutoStealBtn.Text = "Auto Steal: [OFF]"
-AutoStealBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-AutoStealBtn.TextSize = 15
-AutoStealBtn.Font = Enum.Font.SourceSansBold
-
--- زر منطقة الأمان
-local SafeZoneBtn = Instance.new("TextButton")
-SafeZoneBtn.Parent = MainFrame
-SafeZoneBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 200)
-SafeZoneBtn.Position = UDim2.new(0.1, 0, 0.88, 0)
-SafeZoneBtn.Size = UDim2.new(0.8, 0, 0, 32)
-SafeZoneBtn.Text = "العودة لمنطقة الأمان 🛡️"
-SafeZoneBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-SafeZoneBtn.TextSize = 13
-SafeZoneBtn.Font = Enum.Font.SourceSansBold
+-- زر إعادة التوليد
+local RespawnBtn = Instance.new("TextButton")
+RespawnBtn.Parent = MainFrame
+RespawnBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+RespawnBtn.Position = UDim2.new(0.1, 0, 0.86, 0)
+RespawnBtn.Size = UDim2.new(0.8, 0, 0, 32)
+RespawnBtn.Text = "إعادة توليد (Respawn) 🔄"
+RespawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+RespawnBtn.TextSize = 13
+RespawnBtn.Font = Enum.Font.SourceSansBold
 
 -- ==========================================
--- منطق القائمة والبحث المطور في مجلدات الماب
+-- منطق الانتقال للمناطق
 -- ==========================================
 
-local selectedTargetName = "Any Egg (أي بيضة)"
-local autoStealActive = false
-
-local function setupDropdown()
-    for _, child in ipairs(DropdownList:GetChildren()) do
-        if child:IsA("TextButton") then child:Destroy() end
-    end
+-- دالة عامة للبحث عن أجزاء المنطقة أو البوابات والانتقال لها
+local function teleportToArea(keyword)
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local root = char.HumanoidRootPart
     
-    for _, target in ipairs(presetTargets) do
-        local OptionBtn = Instance.new("TextButton")
-        OptionBtn.Parent = DropdownList
-        OptionBtn.Size = UDim2.new(1, 0, 0, 25)
-        OptionBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-        OptionBtn.Text = target
-        OptionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        OptionBtn.TextSize = 12
-        OptionBtn.Font = Enum.Font.SourceSans
-        
-        OptionBtn.MouseButton1Click:Connect(function()
-            selectedTargetName = target
-            DropdownBtn.Text = target .. " ▼"
-            DropdownList.Visible = false
-        end)
-    end
-end
-
-DropdownBtn.MouseButton1Click:Connect(function()
-    DropdownList.Visible = not DropdownList.Visible
-end)
-
--- وظيفة فحص دقيقة تبحث في كافة المجلدات بالخريطة عن البيض
-local function findEggInMap()
-    local targetKey = selectedTargetName:lower()
-    if targetKey:find("any") then targetKey = "egg" end
-
-    -- فحص العناصر داخل Workspace ومجلداتها الفرعية (مثل Drops أو Eggs)
+    local targetPart = nil
     for _, obj in ipairs(workspace:GetDescendants()) do
         local nameLower = obj.Name:lower()
-        
-        -- التحقق مما إذا كان العنصر عبارة عن بيضة أو عش أو يحتوي على الكلمة المستهدفة
-        if nameLower:find(targetKey) or nameLower:find("egg") or nameLower:find("nest") then
-            -- استبعاد اللاعبين والأدوات الشخصية
-            if not obj:IsDescendantOf(Players) then
-                if obj:IsA("Model") and obj.PrimaryPart then
-                    return obj.PrimaryPart
-                elseif obj:IsA("BasePart") and not obj.Anchored and obj.Size.Magnitude < 15 then
-                    return obj
-                elseif obj:IsA("BasePart") then
-                    return obj
-                end
+        if nameLower:find(keyword) then
+            if obj:IsA("Model") and obj.PrimaryPart then
+                targetPart = obj.PrimaryPart
+                break
+            elseif obj:IsA("BasePart") then
+                targetPart = obj
+                break
             end
         end
     end
-    return nil
+    
+    if targetPart then
+        root.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
+    else
+        -- إذا لم يجد جزءاً بالاسم، يتحرك للأمام مسافة معينة بحسب المنطقة
+        root.CFrame = root.CFrame + (root.CFrame.LookVector * 100)
+    end
 end
 
-AutoStealBtn.MouseButton1Click:Connect(function()
-    autoStealActive = not autoStealActive
-    
-    if autoStealActive then
-        AutoStealBtn.Text = "Auto Steal: [ON]"
-        AutoStealBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 80)
-        
-        task.spawn(function()
-            while autoStealActive do
-                local char = LocalPlayer.Character
-                if char and char:FindFirstChild("HumanoidRootPart") then
-                    local eggPart = findEggInMap()
-                    if eggPart then
-                        -- الانتقال المباشر للبيضة
-                        char.HumanoidRootPart.CFrame = eggPart.CFrame + Vector3.new(0, 3, 0)
-                    end
-                end
-                task.wait(0.8) -- فحص سريع جداً كل 0.8 ثانية لضمان سرقة البيضة قبل البقية
-            end
-        end)
-    else
-        AutoStealBtn.Text = "Auto Steal: [OFF]"
-        AutoStealBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-    end
-end)
-
-RefreshBtn.MouseButton1Click:Connect(function()
-    RefreshBtn.Text = "تم التحديث! ✅"
-    task.wait(1)
-    RefreshBtn.Text = "تحديث فحص الخريطة 🔄"
-end)
-
-SafeZoneBtn.MouseButton1Click:Connect(function()
+-- زر منطقة البداية (Spawn)
+SpawnBtn.MouseButton1Click:Connect(function()
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("HumanoidRootPart") then
         local spawn = workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChild("Spawn")
@@ -206,4 +131,22 @@ SafeZoneBtn.MouseButton1Click:Connect(function()
     end
 end)
 
-setupDropdown()
+-- أزرار مناطق الماب المختلفة
+Area1Btn.MouseButton1Click:Connect(function()
+    teleportToArea("area1") or teleportToArea("zone1") or teleportToArea("island1")
+end)
+
+Area2Btn.MouseButton1Click:Connect(function()
+    teleportToArea("area2") or teleportToArea("zone2") or teleportToArea("island2")
+end)
+
+Area3Btn.MouseButton1Click:Connect(function()
+    teleportToArea("area3") or teleportToArea("zone3") or teleportToArea("island3")
+end)
+
+RespawnBtn.MouseButton1Click:Connect(function()
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.Health = 0
+    end
+end)
