@@ -1,4 +1,4 @@
--- Steal An Egg - Clean Return To Base Hub 🛡️
+-- Steal An Egg - Universal Return To Base Hub 🛡️
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
@@ -43,25 +43,30 @@ SpawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 SpawnBtn.TextSize = 15
 SpawnBtn.Font = Enum.Font.SourceSansBold
 
--- دالة العودة النظيفة المباشرة بدون تكرار
+-- دالة العودة القسرية لمركز البداية الأول للماب
 SpawnBtn.MouseButton1Click:Connect(function()
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("HumanoidRootPart") then
         local root = char.HumanoidRootPart
         
-        -- 1. تصفير السرعة والحركة تماماً لتفادي الـ Rubberband
-        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        -- إحداثيات مركز البداية الأساسية في بداية الماب (أول قاعدة)
+        local baseOrigin = CFrame.new(0, 10, 0)
         
-        -- 2. تحديد موقع الـ Spawn أو القاعدة
-        local spawnPart = workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChild("Spawn")
-        local targetCFrame = spawnPart and (spawnPart.CFrame + Vector3.new(0, 4, 0)) or CFrame.new(0, 12, 0)
+        -- البحث عن أول قاعدة أو مكان رسبون أساسي
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("SpawnLocation") and (obj.Position.Magnitude < 150) then
+                baseOrigin = obj.CFrame + Vector3.new(0, 4, 0)
+                break
+            end
+        end
         
-        -- 3. نقل الشخصية مرة واحدة ناعمة ومباشرة
-        root.CFrame = targetCFrame
+        -- تفريغ الفيزياء ونقل الشخصية مباشرة متجاوزين حماية المراحل المتقدمة
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
         
-        -- 4. تصفير السرعة مجدداً بعد النقل مباشرة لضمان الثبات
+        char:PivotTo(baseOrigin)
+        
         task.wait(0.05)
-        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        root.AssemblyLinearVelocity = Vector3.zero
     end
 end)
