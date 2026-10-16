@@ -1,4 +1,4 @@
--- Steal An Egg - Areas Teleport Hub 🚀
+-- Steal An Egg - Areas Teleport Hub 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
