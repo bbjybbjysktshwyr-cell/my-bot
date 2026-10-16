@@ -1,4 +1,4 @@
--- Steal An Egg - Dropdown Selection & Auto Steal Hub
+-- Steal An Egg - Ultimate Auto Steal & Smart Target Hu
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -37,7 +37,7 @@ TargetLabel.Parent = MainFrame
 TargetLabel.BackgroundTransparency = 1
 TargetLabel.Position = UDim2.new(0.1, 0, 0.13, 0)
 TargetLabel.Size = UDim2.new(0.8, 0, 0, 20)
-TargetLabel.Text = "اختر الحيوان/البيضة المستهدفة:"
+TargetLabel.Text = "اختر نوع البيضة المستهدفة:"
 TargetLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
 TargetLabel.TextSize = 13
 TargetLabel.Font = Enum.Font.SourceSans
@@ -48,7 +48,7 @@ DropdownBtn.Parent = MainFrame
 DropdownBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
 DropdownBtn.Position = UDim2.new(0.1, 0, 0.20, 0)
 DropdownBtn.Size = UDim2.new(0.8, 0, 0, 35)
-DropdownBtn.Text = "اختر من القائمة... ▼"
+DropdownBtn.Text = "Secret / Divine ▼"
 DropdownBtn.TextColor3 = Color3.fromRGB(0, 255, 150)
 DropdownBtn.TextSize = 14
 DropdownBtn.Font = Enum.Font.SourceSansBold
@@ -67,13 +67,16 @@ local UIListLayout = Instance.new("UIListLayout")
 UIListLayout.Parent = DropdownList
 UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
+-- قائمة خيارات الأهداف الثابتة والنظيفة
+local presetTargets = {"Secret", "Divine", "Mythical", "Cosmic", "Any Egg (أي بيضة)"}
+
 -- زر التحديث (Refresh Eggs)
 local RefreshBtn = Instance.new("TextButton")
 RefreshBtn.Parent = MainFrame
 RefreshBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
 RefreshBtn.Position = UDim2.new(0.1, 0, 0.65, 0)
 RefreshBtn.Size = UDim2.new(0.8, 0, 0, 32)
-RefreshBtn.Text = "Refresh Eggs List 🔄"
+RefreshBtn.Text = "تحديث فحص الخريطة 🔄"
 RefreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 RefreshBtn.TextSize = 13
 RefreshBtn.Font = Enum.Font.SourceSansBold
@@ -101,66 +104,83 @@ SafeZoneBtn.TextSize = 13
 SafeZoneBtn.Font = Enum.Font.SourceSansBold
 
 -- ==========================================
--- منطق تحديث القائمة والسرقة التلقائية
+-- منطق تحديث القائمة والسرقة التلقائية الذكية
 -- ==========================================
 
-local selectedTargetName = ""
+local selectedTargetName = "Secret"
 local autoStealActive = false
 
--- وظيفة فحص وتعبئة عناصر القائمة من الماب
-local function updateEggList()
-    -- تفريغ العناصر القديمة
+-- تعبئة خيارات القائمة بالرتب والأسماء النظيفة
+local function setupDropdown()
     for _, child in ipairs(DropdownList:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
+        if child:IsA("TextButton") then child:Destroy() end
     end
-
-    local addedNames = {}
     
-    -- البحث في الماب عن أجزاء البيض والحيوانات
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        local objName = obj.Name
-        local nameLower = objName:lower()
+    for _, target in ipairs(presetTargets) do
+        local OptionBtn = Instance.new("TextButton")
+        OptionBtn.Parent = DropdownList
+        OptionBtn.Size = UDim2.new(1, 0, 0, 25)
+        OptionBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        OptionBtn.Text = target
+        OptionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        OptionBtn.TextSize = 12
+        OptionBtn.Font = Enum.Font.SourceSans
         
-        if (nameLower:find("egg") or nameLower:find("nest") or nameLower:find("secret") or nameLower:find("divine") or nameLower:find("mythical")) and not addedNames[objName] then
-            addedNames[objName] = true
-            
-            local OptionBtn = Instance.new("TextButton")
-            OptionBtn.Parent = DropdownList
-            OptionBtn.Size = UDim2.new(1, 0, 0, 25)
-            OptionBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-            OptionBtn.Text = objName
-            OptionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            OptionBtn.TextSize = 12
-            OptionBtn.Font = Enum.Font.SourceSans
-            
-            OptionBtn.MouseButton1Click:Connect(function()
-                selectedTargetName = objName
-                DropdownBtn.Text = objName .. " ▼"
-                DropdownList.Visible = false
-            end)
-        end
+        OptionBtn.MouseButton1Click:Connect(function()
+            selectedTargetName = target
+            DropdownBtn.Text = target .. " ▼"
+            DropdownList.Visible = false
+        end)
     end
 end
 
--- إظهار/إخفاء القائمة المنسدلة
 DropdownBtn.MouseButton1Click:Connect(function()
     DropdownList.Visible = not DropdownList.Visible
-    if DropdownList.Visible then
-        updateEggList()
+end)
+
+-- وظيفة فحص ذكية للبحث عن البيض الفعلي المستهدف وتجنب المباني والآلات
+local function findRealEgg(targetKeyword)
+    targetKeyword = targetKeyword:lower()
+    if targetKeyword:find("any") then targetKeyword = "" end
+
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+
+    -- البحث الشامل عن البيض المجسد بالأرض أو النازل بالحدث
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        -- استبعاد الآلات والستور والمباني
+        local parentName = obj.Parent and obj.Parent.Name:lower() or ""
+        if not parentName:find("machine") and not parentName:find("fuse") and not parentName:find("shop") then
+            
+            local isEggMatch = false
+            local nameLower = obj.Name:lower()
+            
+            -- فحص الاسم أو النصوص الظاهرة فوق البيضة
+            if nameLower:find(targetKeyword) or (targetKeyword == "" and (nameLower:find("egg") or nameLower:find("nest"))) then
+                isEggMatch = true
+            else
+                -- فحص النصوص داخل البيضة (مثل TextLabel)
+                for _, label in ipairs(obj:GetDescendants()) do
+                    if label:IsA("TextLabel") and label.Text:lower():find(targetKeyword) then
+                        isEggMatch = true
+                        break
+                    end
+                end
+            end
+            
+            if isEggMatch then
+                if obj:IsA("Model") and obj.PrimaryPart then
+                    return obj.PrimaryPart
+                elseif obj:IsA("BasePart") and obj.Size.Magnitude < 20 then -- التأكد من أنها بيضة وليست مبنى كبير
+                    return obj
+                end
+            end
+        end
     end
-end)
+    return nil
+end
 
--- زر التحديث
-RefreshBtn.MouseButton1Click:Connect(function()
-    updateEggList()
-    RefreshBtn.Text = "Refreshed! ✅"
-    task.wait(1)
-    RefreshBtn.Text = "Refresh Eggs List 🔄"
-end)
-
--- زر السرقة التلقائية للهدف المختار
+-- زر السرقة التلقائية
 AutoStealBtn.MouseButton1Click:Connect(function()
     autoStealActive = not autoStealActive
     
@@ -172,44 +192,14 @@ AutoStealBtn.MouseButton1Click:Connect(function()
             while autoStealActive do
                 local char = LocalPlayer.Character
                 if char and char:FindFirstChild("HumanoidRootPart") then
-                    local foundTarget = nil
+                    local targetPart = findRealEgg(selectedTargetName)
                     
-                    -- البحث عن العنصر المحدد من القائمة
-                    if selectedTargetName ~= "" then
-                        for _, obj in ipairs(workspace:GetDescendants()) do
-                            if obj.Name == selectedTargetName then
-                                if obj:IsA("Model") and obj.PrimaryPart then
-                                    foundTarget = obj.PrimaryPart
-                                    break
-                                elseif obj:IsA("BasePart") then
-                                    foundTarget = obj
-                                    break
-                                end
-                            end
-                        end
-                    end
-                    
-                    -- إذا لم يحدد حيواناً معيناً ينقل لأول بيضة متاحة
-                    if not foundTarget then
-                        for _, obj in ipairs(workspace:GetDescendants()) do
-                            local nameLower = obj.Name:lower()
-                            if nameLower:find("egg") or nameLower:find("nest") then
-                                if obj:IsA("Model") and obj.PrimaryPart then
-                                    foundTarget = obj.PrimaryPart
-                                    break
-                                elseif obj:IsA("BasePart") then
-                                    foundTarget = obj
-                                    break
-                                end
-                            end
-                        end
-                    end
-                    
-                    if foundTarget then
-                        char.HumanoidRootPart.CFrame = foundTarget.CFrame + Vector3.new(0, 3, 0)
+                    if targetPart then
+                        -- الانتقال المباشر فوق البيضة
+                        char.HumanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
                     end
                 end
-                task.wait(1.5)
+                task.wait(1.2)
             end
         end)
     else
@@ -218,7 +208,12 @@ AutoStealBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- زر منطقة الأمان
+RefreshBtn.MouseButton1Click:Connect(function()
+    RefreshBtn.Text = "تم التحديث! ✅"
+    task.wait(1)
+    RefreshBtn.Text = "تحديث فحص الخريطة 🔄"
+end)
+
 SafeZoneBtn.MouseButton1Click:Connect(function()
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("HumanoidRootPart") then
@@ -231,5 +226,4 @@ SafeZoneBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- تحديث الأهداف فور تشغيل السكربت
-updateEggList()
+setupDropdown()
