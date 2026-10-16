@@ -1,4 +1,4 @@
--- Steal An Egg - Universal Return To Base Hub 🛡️
+-- Steal An Egg - Universal Return To Bas Hub 🛡️
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
