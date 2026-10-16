@@ -1,4 +1,4 @@
--- Steal An Egg - Stealth Teleport & Safe Return Hub 🚀
+-- Steal An Egg - Stealth Teleport & Safe Return Hu 🚀
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
